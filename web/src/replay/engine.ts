@@ -59,6 +59,12 @@ export class ReplayEngine<S> {
   private dirtyFrom = Infinity; // smallest index changed since the last fold
   private lastTick = 0;
   private clockOffset: number | null = null;
+  /**
+   * Exact cursor after a step. The playhead is a millisecond timestamp and
+   * several events can share one, so a step remembers the event index too.
+   * Cleared by anything that moves the clock (play, seek, live).
+   */
+  private pinned: number | null = null;
 
   mode: EngineMode = "live";
   playing = true;
@@ -91,6 +97,7 @@ export class ReplayEngine<S> {
       while (i > 0 && before(e, this.events[i - 1])) i--;
       this.events.splice(i, 0, e);
       if (i <= this.folded) this.dirtyFrom = Math.min(this.dirtyFrom, i);
+      if (this.pinned !== null && i <= this.pinned) this.pinned++;
       changed = true;
     }
     if (changed) this.update(true);
@@ -100,6 +107,7 @@ export class ReplayEngine<S> {
   load(events: readonly AtlasEvent[], mode: EngineMode = "replay"): void {
     this.events = [...events].sort((a, b) => (before(a, b) ? -1 : before(b, a) ? 1 : 0));
     this.ids = new Set(this.events.map((e) => `${e.session ?? ""}/${e.id}`));
+    this.pinned = null;
     this.resetFold();
     this.mode = mode;
     this.playing = mode === "live";
@@ -139,8 +147,9 @@ export class ReplayEngine<S> {
     const dt = this.lastTick ? Math.min(now - this.lastTick, 250) : 0;
     this.lastTick = now;
     if (this.mode === "live") {
+      this.pinned = null;
       this.playhead = now - (this.clockOffset ?? 0) - this.liveDelayMs;
-    } else if (this.playing) {
+    } else if (this.playing && this.events.length > 0) {
       this.playhead += dt * this.speed;
       const end = this.end();
       if (this.playhead >= end) {
@@ -155,7 +164,10 @@ export class ReplayEngine<S> {
 
   play(): void {
     if (this.mode === "live") return;
-    if (this.playhead >= this.end()) this.playhead = this.start() - 1;
+    // Outside the recorded range (at the end, or before the first event, e.g.
+    // after pausing an empty view): start from the beginning.
+    if (this.playhead >= this.end() || this.playhead < this.start() - 1) this.playhead = this.start() - 1;
+    this.pinned = null;
     this.playing = true;
     this.update(true);
   }
@@ -172,6 +184,7 @@ export class ReplayEngine<S> {
   }
 
   goLive(): void {
+    this.pinned = null;
     this.mode = "live";
     this.playing = true;
     this.update(true);
@@ -184,6 +197,7 @@ export class ReplayEngine<S> {
 
   seek(t: number): void {
     this.mode = "replay";
+    this.pinned = null;
     this.playhead = Math.max(this.start() - 1, Math.min(t, this.end()));
     this.update(true);
   }
@@ -192,9 +206,10 @@ export class ReplayEngine<S> {
   stepForward(visible: (e: AtlasEvent) => boolean = () => true): AtlasEvent | null {
     this.mode = "replay";
     this.playing = false;
-    for (let i = upperBound(this.events, this.playhead); i < this.events.length; i++) {
+    for (let i = this.cursorIndex() + 1; i < this.events.length; i++) {
       if (visible(this.events[i])) {
         this.playhead = this.events[i].t;
+        this.pinned = i;
         this.update(true);
         return this.events[i];
       }
@@ -207,14 +222,15 @@ export class ReplayEngine<S> {
   stepBack(visible: (e: AtlasEvent) => boolean = () => true): AtlasEvent | null {
     this.mode = "replay";
     this.playing = false;
-    const cur = upperBound(this.events, this.playhead) - 1;
-    for (let i = cur - 1; i >= 0; i--) {
-      if (visible(this.events[i]) && this.events[i].t < this.playhead) {
+    for (let i = this.cursorIndex() - 1; i >= 0; i--) {
+      if (visible(this.events[i])) {
         this.playhead = this.events[i].t;
+        this.pinned = i;
         this.update(true);
         return this.events[i];
       }
     }
+    this.pinned = null;
     this.playhead = this.start() - 1;
     this.update(true);
     return null;
@@ -243,8 +259,14 @@ export class ReplayEngine<S> {
     this.dirtyFrom = Infinity;
   }
 
+  /** Last event at or before the playhead, or the pinned step position. */
+  private cursorIndex(): number {
+    const ub = upperBound(this.events, this.playhead) - 1;
+    return this.pinned !== null ? Math.min(this.pinned, ub) : ub;
+  }
+
   private update(force: boolean): void {
-    const cursor = upperBound(this.events, this.playhead) - 1;
+    const cursor = this.cursorIndex();
     if (this.dirtyFrom !== Infinity || cursor < this.folded) this.resetFold();
     for (let i = this.folded + 1; i <= cursor; i++) this.fold.apply(this.foldState, this.events[i]);
     const moved = cursor !== this.folded || cursor !== this.snap.cursor;

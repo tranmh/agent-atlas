@@ -74,6 +74,8 @@ export class AtlasMap {
   private osm: L.TileLayer | null = null;
   private world: L.GeoJSON | null = null;
   private lastFlights: Flight[] = [];
+  /** The last view state, re-applied to pins created later (setScenarios). */
+  private lastView: ViewState | null = null;
   private resize: ResizeObserver | null = null;
   private zooming = false;
   private listeners: { [K in keyof Events]: Set<Events[K]> } = { agent: new Set(), flight: new Set(), hub: new Set(), llm: new Set() };
@@ -186,6 +188,7 @@ export class AtlasMap {
         this.nodes.set(p.id, { id: p.id, scenario: s.code, color: s.color, role, name: p.name, city: p.city, lat: p.lat, lon: p.lon, offset, marker });
       }
     }
+    if (this.lastView) this.setView(this.lastView);
   }
 
   private icon(code: string, color: string, role: string, name: string, status: string, offset: Pt): L.DivIcon {
@@ -216,6 +219,7 @@ export class AtlasMap {
 
   /** Update pin icons from the view state (only pins whose status changed). */
   setView(view: ViewState): void {
+    this.lastView = view;
     for (const n of this.nodes.values()) {
       const a = view.agents.get(n.id);
       const status = a?.status ?? "idle";
