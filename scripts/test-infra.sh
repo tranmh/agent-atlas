@@ -8,7 +8,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-git clone --quiet "$ROOT" "$TMP/repo"
+# A "fresh clone" of the working tree: exactly the files git would commit
+# (tracked + new, not ignored), so the test also sees uncommitted fixes.
+mkdir -p "$TMP/repo"
+(cd "$ROOT" && git ls-files -z --cached --others --exclude-standard | tar --null -T - -cf -) | tar -xf - -C "$TMP/repo"
 cd "$TMP/repo"
 cp .env.example .env
 

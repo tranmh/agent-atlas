@@ -4,6 +4,9 @@
 export
 
 GO_SERVICES := agent orchestrator visualizer atlasgen
+# The visualizer writes data/sessions as this user (docker-compose.yml `user:`).
+UID_GID ?= $(shell id -u):$(shell id -g)
+export UID_GID
 COMPOSE     := docker compose
 
 .DEFAULT_GOAL := help
@@ -31,8 +34,12 @@ lint: ## gofmt check + go vet + web lint
 web-test: ## Web lint + Vitest
 	cd web && npm run lint && npm test
 
+.PHONY: prepare-dirs
+prepare-dirs: # Bind-mount sources must exist before compose, or Docker creates them as root
+	@mkdir -p data/sessions
+
 .PHONY: up
-up: ## Build and start the stack, wait until healthy
+up: prepare-dirs ## Build and start the stack, wait until healthy
 	@test -f .env || (echo "missing .env: cp .env.example .env" && exit 1)
 	$(COMPOSE) up -d --build --wait
 
@@ -132,3 +139,6 @@ screenshots: ## Regenerate docs/screenshots/*.png from the running stack (~2 min
 .PHONY: test-infra
 test-infra: ## Infra regression tests on a fresh clone (needs Docker and the built images)
 	./scripts/test-infra.sh
+
+print-%: # make print-VAR shows a variable as make resolves it
+	@echo $($*)
