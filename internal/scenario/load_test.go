@@ -77,3 +77,49 @@ func TestMCPValidation(t *testing.T) {
 	require.ErrorContains(t, err, `write tools and only write tools start with "restricted_"`)
 	require.ErrorContains(t, err, "exactly one MCP write tool")
 }
+
+// Review C2: scripted tool arguments must match the tool's parameters.
+func TestToolStepArgumentsAreValidated(t *testing.T) {
+	c, err := LoadEmbedded()
+	require.NoError(t, err)
+	mutate := func(agentID string, edit func(*ToolCall)) error {
+		s := *c.ByCode("sc")
+		s.Agents = append([]Agent(nil), s.Agents...)
+		for i := range s.Agents {
+			if s.Agents[i].ID != agentID {
+				continue
+			}
+			s.Agents[i].Script = append([]Step(nil), s.Agents[i].Script...)
+			for j, st := range s.Agents[i].Script {
+				if st.Tool != nil && st.Tool.Expect != "denied" {
+					tc := *st.Tool
+					tc.Args = map[string]any{}
+					for k, v := range st.Tool.Args {
+						tc.Args[k] = v
+					}
+					edit(&tc)
+					s.Agents[i].Script[j].Tool = &tc
+					break
+				}
+			}
+		}
+		return s.Validate()
+	}
+	err = mutate("sc-spare-parts", func(tc *ToolCall) { tc.Args = map[string]any{"partx": "SKF 23148"} })
+	require.ErrorContains(t, err, `check_stock: missing argument "part"`)
+	require.ErrorContains(t, err, `check_stock: unknown argument "partx"`)
+
+	err = mutate("sc-field-service", func(tc *ToolCall) {}) // unchanged: valid
+	require.NoError(t, err)
+}
+
+func TestToolArgumentTypesAndEnums(t *testing.T) {
+	tool := &MCPTool{Name: "read_trend", Params: []MCPParam{
+		{Name: "asset", Type: "string"}, {Name: "signal", Type: "string", Enum: []string{"bearing_temp", "vibration"}}, {Name: "days", Type: "integer"},
+	}}
+	require.Empty(t, CheckArgs(tool, map[string]any{"asset": "T3", "signal": "vibration", "days": 7}))
+	require.Empty(t, CheckArgs(tool, map[string]any{"asset": "{{input}}", "signal": "vibration", "days": 7}))
+	problems := CheckArgs(tool, map[string]any{"asset": "T3", "signal": "bogus", "days": "seven"})
+	require.Contains(t, problems, `argument "signal" must be one of [bearing_temp vibration]`)
+	require.Contains(t, problems, `argument "days" must be a integer`)
+}

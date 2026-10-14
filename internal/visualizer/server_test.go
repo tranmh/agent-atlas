@@ -211,7 +211,7 @@ func TestOTLPMCPAccessLogNamesServerAndTool(t *testing.T) {
 	req := &collogs.ExportLogsServiceRequest{ResourceLogs: []*logs.ResourceLogs{{ScopeLogs: []*logs.ScopeLogs{{LogRecords: []*logs.LogRecord{
 		{Attributes: []*common.KeyValue{kv("route", "default/sc-mcp"), kv("http.method", "POST"), kv("http.path", "/mcp/sc"), status(200),
 			kv("mcp.method.name", "tools/call"), kv("mcp.target", "erp"), kv("mcp_tool", "quote_freight"), kv("caller", "sc-logistics"), kv("duration", "6012ms")}},
-		{Attributes: []*common.KeyValue{kv("route", "default/sc-mcp"), kv("http.method", "POST"), kv("http.path", "/mcp/sc"), status(400),
+		{TimeUnixNano: 1_791_000_000_000_000_000, Attributes: []*common.KeyValue{kv("route", "default/sc-mcp"), kv("http.method", "POST"), kv("http.path", "/mcp/sc"), status(400),
 			kv("mcp.method.name", "tools/call"), kv("mcp.target", "erp"), kv("mcp_tool", "restricted_shutdown_turbine"), kv("reason", "MCP"), kv("caller", "sc-field-service")}},
 		{Attributes: []*common.KeyValue{kv("route", "default/sc-mcp"), kv("http.method", "POST"), kv("http.path", "/mcp/sc"), status(200),
 			kv("mcp.method.name", "initialize"), kv("caller", "sc-logistics")}},
@@ -227,6 +227,9 @@ func TestOTLPMCPAccessLogNamesServerAndTool(t *testing.T) {
 	require.Equal(t, "MCP tools/call quote_freight", evs[0].Method)
 	require.Equal(t, int64(6012), evs[0].DurationMS)
 	require.Contains(t, evs[1].Note, "MCP policy refused restricted_shutdown_turbine")
+	// Review C1: the refused row keeps its scenario and the gateway's timestamp.
+	require.Equal(t, "sc", evs[1].Scenario)
+	require.False(t, evs[1].ProducedTS.IsZero())
 	require.Equal(t, "agentgateway", evs[2].To)
 	require.Equal(t, "sc", evs[2].Scenario)
 }
