@@ -20,8 +20,8 @@ MCP extension, plan: [2026-10-14-mcp-plan.md](2026-10-14-mcp-plan.md).
 |---|---|---|---|
 | M9 | Spike: MCP route, multiplexing, progress, authorization through agentgateway | done | 2ebf2ec |
 | M10 | Scenario schema for MCP servers, `cmd/mcpserver`, generated routes and compose | done | df10288 |
-| M11 | Shared wire capture, MCP client, scripted tool/resource steps, events | done | (this commit) |
-| M12 | LLM tool loop over MCP (prompts/get, tools/list, tool_calls) | open | |
+| M11 | Shared wire capture, MCP client, scripted tool/resource steps, events | done | 04a6c7d |
+| M12 | LLM tool loop over MCP (prompts/get, tools/list, tool_calls) | done | (this commit) |
 | M13 | Visualizer MCP decoding, UI hexagons, MCP flights, panels | open | |
 | M14 | e2e, screenshots, sample, docs | open | |
 | M15 | Fable code review of the MCP changes, TDD fixes | open | |
@@ -122,6 +122,16 @@ Two Go MCP servers (Streamable HTTP, stateful) behind one route with `backends: 
   resources/read, prompts/get, ...), `mcp.target`, `mcp.resource.uri`, `mcp.session.id`, `http.status`, `duration`,
   `error`/`reason`. The tool name is not logged by default; `accessLog.add: {mcp_tool: 'mcp.tool.name'}` adds it.
 - qwen3:1.7b function calling (OpenAI `tools`, `reasoning_effort: none`) picked a sensible tool 3/3 times.
+
+## Verified facts (M12, qwen3:1.7b tool calling over MCP)
+
+- Ollama ignores `tool_choice: "required"`.
+- A system prompt that also limits the answer ("answer in three sentences") stops qwen3:1.7b from calling
+  tools; it narrates "Call read_trend…" instead. MCP prompts are therefore tool-first ("Use the tools to get
+  data before answering") and the agent adds the length limit only after the tool results.
+- Even so, 4 of 5 scenarios first answer from memory. One nudge ("Call the tool now. Do not answer yet.")
+  made 10/10 runs call a fitting tool and ground the answer in its result. The nudge is visible in the UI.
+- At most two tool calls per round, two rounds, then a forced answer; anything else falls back to the script.
 
 ## Notes for resuming
 

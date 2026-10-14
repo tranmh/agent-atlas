@@ -38,3 +38,21 @@ func TestChatErrors(t *testing.T) {
 	_, err = (&Client{}).Chat(context.Background(), "s", "p", 5, nil)
 	require.ErrorContains(t, err, "disabled")
 }
+
+func TestChatMessagesWithToolCalls(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req Request
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		require.Len(t, req.Tools, 1)
+		require.Equal(t, "historian_read_trend", req.Tools[0].Function.Name)
+		_, _ = w.Write([]byte(`{"model":"m","choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"historian_read_trend","arguments":"{\"asset\":\"T3\"}"}}]}}]}`))
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, Model: "m"}
+	res, err := c.ChatMessages(context.Background(), []Message{{Role: "user", Content: "x"}},
+		[]Tool{{Type: "function", Function: FunctionDef{Name: "historian_read_trend", Parameters: map[string]any{"type": "object"}}}}, 100, nil)
+	require.NoError(t, err)
+	require.Len(t, res.ToolCalls, 1)
+	require.Equal(t, `{"asset":"T3"}`, res.ToolCalls[0].Function.Arguments)
+	require.Equal(t, "assistant", res.Message.Role)
+}

@@ -126,7 +126,7 @@ mcp_servers:
     prompts:
       - name: root_cause
         description: System prompt for a vibration root cause
-        text: You are a vibration analysis expert for pulp refiners. Before you answer, call read_spectrum for the asset. Then give the most likely root cause in at most three short sentences.
+        text: You are a vibration analysis expert for pulp refiners. Use the tools to get data before answering.
   - id: pm-cmms
     role: ops
     name: Maintenance System

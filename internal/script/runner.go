@@ -6,6 +6,7 @@ package script
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -40,6 +41,7 @@ const (
 // Chatter is the LLM client interface (llm.Client implements it).
 type Chatter interface {
 	Chat(ctx context.Context, system, prompt string, maxTokens int, headers map[string]string) (*llm.Result, error)
+	ChatMessages(ctx context.Context, msgs []llm.Message, tools []llm.Tool, maxTokens int, headers map[string]string) (*llm.Result, error)
 }
 
 // Runner executes one agent's script.
@@ -105,7 +107,10 @@ func (r *Runner) Execute(ctx context.Context, ec *a2asrv.ExecutorContext) iter.S
 					return
 				}
 			case "llm":
-				text, source := r.llmStep(ctx, ec, c, st)
+				text, source, ok := r.llmStep(ctx, ec, c, mc, st, yield)
+				if !ok {
+					return
+				}
 				ev := artifactEvent(ec, "answer", text, nil, source)
 				r.emit(ec, c, *(&events.Event{Kind: events.KindArtifact, Note: "Artifact answer (" + source + ")"}).WithValue(ev.Artifact, r.PayloadLimit))
 				if !yield(ev, nil) {
@@ -164,37 +169,161 @@ func (r *Runner) resumeIndex(ec *a2asrv.ExecutorContext) int {
 	return 0
 }
 
-func (r *Runner) llmStep(ctx context.Context, ec *a2asrv.ExecutorContext, c call, st scenario.Step) (string, string) {
+// Conversation turns the agent adds to steer a small model.
+const (
+	answerNow            = "Using these results, answer now in at most three short sentences."
+	nudge                = "Call the tool now. Do not answer yet."
+	maxToolCallsPerRound = 2
+)
+
+// llmStep produces the agent's answer with the model. With prompt_from the
+// system prompt comes from an MCP server; with tools the model may call the
+// listed MCP servers' tools (as the gateway lists them) for up to two rounds.
+// Any failure falls back to the scripted text. ok=false: the A2A caller is gone.
+func (r *Runner) llmStep(ctx context.Context, ec *a2asrv.ExecutorContext, c call, mc *mcpConn, st scenario.Step, yield func(a2a.Event, error) bool) (string, string, bool) {
 	fallback := expand(st.Fallback, c)
 	if r.Agent.Mode != scenario.ModeLLM {
-		return fallback, "scripted"
+		return fallback, "scripted", true
 	}
 	if r.LLM == nil {
 		r.emit(ec, c, events.Event{Kind: events.KindLLMUnavailable, To: "llm", Note: "LLM disabled, using the scripted answer"})
-		return fallback, "fallback"
+		return fallback, "fallback", true
 	}
-	prompt := expand(st.LLMPrompt, c)
-	r.emit(ec, c, *(&events.Event{Kind: events.KindLLMRequest, To: "llm", Via: events.ViaGateway, Method: "POST /v1/chat/completions",
-		Note: "Asking the model through the gateway's LLM route"}).WithValue(map[string]any{"system": r.Agent.LLM.System, "prompt": prompt}, r.PayloadLimit))
+	system := r.Agent.LLM.System
+	var tools []llm.Tool
+	allowed := map[string]bool{}
+	if st.PromptFrom != nil || len(st.Tools) > 0 {
+		sess, err := mc.session(ctx)
+		if err != nil {
+			if !r.work(ec, c, "MCP unavailable ("+err.Error()+"): the model answers without tools", yield) {
+				return "", "", false
+			}
+		} else {
+			if pf := st.PromptFrom; pf != nil {
+				name := mcpx.ToolName(r.Scenario.MCPServer(pf.Server), pf.Name)
+				if !r.work(ec, c, fmt.Sprintf("Fetching the system prompt %s over MCP…", name), yield) {
+					return "", "", false
+				}
+				if text, err := sess.GetPrompt(ctx, name); err == nil && strings.TrimSpace(text) != "" {
+					system = text
+				}
+			}
+			if len(st.Tools) > 0 {
+				list, err := sess.Tools(ctx)
+				if err == nil {
+					for _, t := range list {
+						for _, id := range st.Tools {
+							if strings.HasPrefix(t.Name, r.Scenario.MCPServer(id).Target()+"_") {
+								tools = append(tools, llm.Tool{Type: "function", Function: llm.FunctionDef{Name: t.Name, Description: t.Description, Parameters: t.InputSchema}})
+								allowed[t.Name] = true
+							}
+						}
+					}
+				}
+				names := make([]string, 0, len(tools))
+				for _, t := range tools {
+					names = append(names, t.Function.Name)
+				}
+				if !r.work(ec, c, fmt.Sprintf("The model may call %d MCP tools: %s", len(tools), strings.Join(names, ", ")), yield) {
+					return "", "", false
+				}
+			}
+		}
+	}
+
 	headers := map[string]string{HeaderRunID: c.runID, HeaderCaller: r.Agent.ID}
 	if c.traceparent != "" {
 		headers["Traceparent"] = c.traceparent // the LLM call joins the run's trace
 	}
-	cctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	res, err := r.LLM.Chat(cctx, r.Agent.LLM.System, prompt, r.Agent.LLM.MaxTokens, headers)
-	if err != nil {
-		e := events.Event{Kind: events.KindLLMUnavailable, To: "llm", Note: "Model unavailable (" + err.Error() + "), using the scripted answer"}
-		if res != nil {
-			e.DurationMS = res.Duration.Milliseconds()
+	msgs := []llm.Message{{Role: "system", Content: system}, {Role: "user", Content: expand(st.LLMPrompt, c)}}
+	const maxRounds = 3 // up to two rounds of tool calls, then an answer
+	usedTool, nudged := false, false
+	for round := 1; round <= maxRounds; round++ {
+		offered := tools
+		if round == maxRounds {
+			offered = nil // the last round must answer
 		}
-		r.emit(ec, c, e)
-		return fallback, "fallback"
+		toolNames := make([]string, 0, len(offered))
+		for _, t := range offered {
+			toolNames = append(toolNames, t.Function.Name)
+		}
+		note := "Asking the model through the gateway's LLM route"
+		if len(offered) > 0 {
+			note = fmt.Sprintf("Asking the model (round %d) with %d MCP tools it may call", round, len(offered))
+		}
+		r.emit(ec, c, *(&events.Event{Kind: events.KindLLMRequest, To: "llm", Via: events.ViaGateway, Method: "POST /v1/chat/completions", Note: note}).
+			WithValue(map[string]any{"round": round, "tools": toolNames, "messages": msgs}, r.PayloadLimit))
+		res, err := r.LLM.ChatMessages(cctx, msgs, offered, r.Agent.LLM.MaxTokens, headers)
+		if err != nil {
+			e := events.Event{Kind: events.KindLLMUnavailable, To: "llm", Note: "Model unavailable (" + err.Error() + "), using the scripted answer"}
+			if res != nil {
+				e.DurationMS = res.Duration.Milliseconds()
+			}
+			r.emit(ec, c, e)
+			return fallback, "fallback", true
+		}
+		answered := fmt.Sprintf("%s answered in %.1f s (%d tokens)", res.Model, res.Duration.Seconds(), res.Usage.CompletionTokens)
+		if len(res.ToolCalls) > 0 {
+			answered = fmt.Sprintf("%s asked for %d tool call(s) in %.1f s", res.Model, len(res.ToolCalls), res.Duration.Seconds())
+		}
+		ev := events.Event{Kind: events.KindLLMResponse, From: "llm", To: r.Agent.ID, Via: events.ViaGateway, DurationMS: res.Duration.Milliseconds(), Note: answered}
+		r.emit(ec, c, *ev.WithPayload(res.RespBody, r.PayloadLimit))
+		if len(res.ToolCalls) == 0 {
+			if len(offered) > 0 && !usedTool && !nudged && round < maxRounds {
+				// Small models often answer from memory. Insist once on data first.
+				nudged = true
+				if !r.work(ec, c, "The model answered without data; asking it to call a tool first.", yield) {
+					return "", "", false
+				}
+				msgs = append(msgs, llm.Message{Role: "assistant", Content: res.Text}, llm.Message{Role: "user", Content: nudge})
+				continue
+			}
+			return res.Text, "llm", true
+		}
+		usedTool = true
+		msgs = append(msgs, res.Message)
+		for i, tc := range res.ToolCalls {
+			name := tc.Function.Name
+			args := map[string]any{}
+			argErr := json.Unmarshal([]byte(tc.Function.Arguments), &args)
+			choice := events.Event{Kind: events.KindLLMToolChoice, From: "llm", To: r.Agent.ID, Method: name,
+				Note: fmt.Sprintf("The model chose the MCP tool %s(%s)", name, tc.Function.Arguments)}
+			r.emit(ec, c, *choice.WithValue(map[string]any{"name": name, "arguments": args, "raw_arguments": tc.Function.Arguments}, r.PayloadLimit))
+			var content string
+			switch {
+			case i >= maxToolCallsPerRound:
+				content = "skipped: at most two tool calls per round"
+			case !allowed[name]:
+				content = "error: unknown tool " + name
+			case argErr != nil:
+				content = "error: arguments must be a JSON object"
+			default:
+				if !r.work(ec, c, fmt.Sprintf("The model chose %s(%s)", name, tc.Function.Arguments), yield) {
+					return "", "", false
+				}
+				sess, _ := mc.session(ctx)
+				text, err, ok := r.runTool(cctx, ec, c, sess, name, args, yield)
+				if !ok {
+					return "", "", false
+				}
+				if err != nil {
+					content = "error: " + err.Error()
+				} else {
+					content = text
+					if !r.work(ec, c, fmt.Sprintf("%s → %s", name, text), yield) {
+						return "", "", false
+					}
+				}
+			}
+			msgs = append(msgs, llm.Message{Role: "tool", ToolCallID: tc.ID, Content: content})
+		}
+		// Small models stop calling tools when the system prompt also limits the
+		// answer, so the length limit comes only once the tool results are in.
+		msgs = append(msgs, llm.Message{Role: "user", Content: answerNow})
 	}
-	ev := events.Event{Kind: events.KindLLMResponse, From: "llm", To: r.Agent.ID, Via: events.ViaGateway, DurationMS: res.Duration.Milliseconds(),
-		Note: fmt.Sprintf("%s answered in %.1f s (%d tokens)", res.Model, res.Duration.Seconds(), res.Usage.CompletionTokens)}
-	r.emit(ec, c, *ev.WithPayload(res.RespBody, r.PayloadLimit))
-	return res.Text, "llm"
+	return fallback, "fallback", true
 }
 
 func (r *Runner) callInfo(ec *a2asrv.ExecutorContext) call {
@@ -355,8 +484,7 @@ func (r *Runner) work(ec *a2asrv.ExecutorContext, c call, text string, yield fun
 	return yield(status(ec, a2a.TaskStateWorking, text), nil)
 }
 
-// toolStep calls an MCP tool through the gateway. Progress notifications of
-// slow tools become A2A status updates, so the A2A caller sees them too.
+// toolStep calls an MCP tool through the gateway (a scripted step).
 func (r *Runner) toolStep(ctx context.Context, ec *a2asrv.ExecutorContext, c call, mc *mcpConn, t *scenario.ToolCall, yield func(a2a.Event, error) bool) bool {
 	srv := r.Scenario.MCPServer(t.Server)
 	name := mcpx.ToolName(srv, t.Name)
@@ -374,6 +502,30 @@ func (r *Runner) toolStep(ctx context.Context, ec *a2asrv.ExecutorContext, c cal
 		}
 		args[k] = v
 	}
+	text, err, ok := r.runTool(ctx, ec, c, sess, name, args, yield)
+	if !ok {
+		return false
+	}
+	switch {
+	case errors.Is(err, mcpx.ErrDenied) && t.Expect == "denied":
+		return r.work(ec, c, fmt.Sprintf("As expected, agentgateway refused the write tool %s. A human has to do this.", name), yield)
+	case errors.Is(err, mcpx.ErrDenied):
+		return r.work(ec, c, fmt.Sprintf("agentgateway refused %s.", name), yield)
+	case err != nil:
+		return r.work(ec, c, fmt.Sprintf("MCP tool %s failed: %v", name, err), yield)
+	case t.Expect == "denied":
+		return r.work(ec, c, fmt.Sprintf("Unexpected: the write tool %s went through. Is the MCP policy loaded?", name), yield)
+	default:
+		return r.work(ec, c, fmt.Sprintf("%s → %s", name, text), yield)
+	}
+}
+
+// runTool calls a tool and turns its progress notifications into A2A status
+// updates, so the A2A caller sees them too. ok=false: the A2A caller is gone.
+func (r *Runner) runTool(ctx context.Context, ec *a2asrv.ExecutorContext, c call, sess *mcpx.Session, name string, args map[string]any, yield func(a2a.Event, error) bool) (string, error, bool) {
+	if sess == nil {
+		return "", errors.New("no MCP session"), true
+	}
 	type result struct {
 		text string
 		err  error
@@ -385,27 +537,20 @@ func (r *Runner) toolStep(ctx context.Context, ec *a2asrv.ExecutorContext, c cal
 			done <- result{err: err}
 			return
 		}
+		if res.IsError {
+			done <- result{err: errors.New(mcpx.ResultText(res))}
+			return
+		}
 		done <- result{text: mcpx.ResultText(res)}
 	}()
 	for {
 		select {
 		case p := <-sess.Progress():
 			if !r.work(ec, c, fmt.Sprintf("%s: %s (%g/%g)", name, p.Message, p.Progress, p.Total), yield) {
-				return false
+				return "", nil, false
 			}
 		case res := <-done:
-			switch {
-			case errors.Is(res.err, mcpx.ErrDenied) && t.Expect == "denied":
-				return r.work(ec, c, fmt.Sprintf("As expected, agentgateway refused the write tool %s. A human has to do this.", name), yield)
-			case errors.Is(res.err, mcpx.ErrDenied):
-				return r.work(ec, c, fmt.Sprintf("agentgateway refused %s.", name), yield)
-			case res.err != nil:
-				return r.work(ec, c, fmt.Sprintf("MCP tool %s failed: %v", name, res.err), yield)
-			case t.Expect == "denied":
-				return r.work(ec, c, fmt.Sprintf("Unexpected: the write tool %s went through. Is the MCP policy loaded?", name), yield)
-			default:
-				return r.work(ec, c, fmt.Sprintf("%s → %s", name, res.text), yield)
-			}
+			return res.text, res.err, true
 		}
 	}
 }

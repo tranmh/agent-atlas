@@ -380,7 +380,7 @@
           {
             "name": "credit_review",
             "description": "System prompt for a credit check",
-            "text": "You are a credit analyst for industrial exports. Before you answer, call order_history for the customer. Then give a credit verdict in at most three short sentences."
+            "text": "You are a credit analyst for industrial exports. Use the tools to get data before answering."
           }
         ]
       },
@@ -785,7 +785,7 @@
           {
             "name": "answer_draft",
             "description": "System prompt for a technical answer",
-            "text": "You are a senior metals process engineer. Before you answer, call search_docs with the key words of the question. Then answer in at most three short sentences."
+            "text": "You are a senior metals process engineer. Use the tools to get data before answering."
           }
         ]
       },
@@ -1218,7 +1218,7 @@
           {
             "name": "root_cause",
             "description": "System prompt for a vibration root cause",
-            "text": "You are a vibration analysis expert for pulp refiners. Before you answer, call read_spectrum for the asset. Then give the most likely root cause in at most three short sentences."
+            "text": "You are a vibration analysis expert for pulp refiners. Use the tools to get data before answering."
           }
         ]
       },
@@ -1671,7 +1671,7 @@
           {
             "name": "diagnose",
             "description": "System prompt for a bearing diagnosis",
-            "text": "You are a hydro turbine diagnostics engineer. Before you answer, call read_trend for the asset's bearing_temp. Then answer in at most three short sentences with the fault and the next action."
+            "text": "You are a hydro turbine diagnostics engineer. Use the tools to get data before answering."
           }
         ]
       },
@@ -2106,7 +2106,7 @@
           {
             "name": "itinerary",
             "description": "System prompt for an itinerary",
-            "text": "You are a corporate travel agent. Before you answer, call search_flights for the outbound trip. Then propose the flights in at most two sentences. Do not invent flights."
+            "text": "You are a corporate travel agent. Use the tools to get data before answering. Do not invent flights."
           }
         ]
       },

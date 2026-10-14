@@ -132,7 +132,7 @@ mcp_servers:
     prompts:
       - name: diagnose
         description: System prompt for a bearing diagnosis
-        text: You are a hydro turbine diagnostics engineer. Before you answer, call read_trend for the asset's bearing_temp. Then answer in at most three short sentences with the fault and the next action.
+        text: You are a hydro turbine diagnostics engineer. Use the tools to get data before answering.
   - id: sc-erp
     role: ops
     name: ERP & Spare Parts

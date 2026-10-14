@@ -25,14 +25,40 @@ type Client struct {
 
 // Message is one chat message.
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // assistant: the tools the model wants called
+	ToolCallID string     `json:"tool_call_id,omitempty"` // tool: which call this result answers
+}
+
+// Tool is an OpenAI-style function the model may call.
+type Tool struct {
+	Type     string      `json:"type"` // "function"
+	Function FunctionDef `json:"function"`
+}
+
+// FunctionDef describes a callable function (an MCP tool).
+type FunctionDef struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Parameters  any    `json:"parameters,omitempty"`
+}
+
+// ToolCall is a function call the model asked for.
+type ToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"` // JSON object as a string
+	} `json:"function"`
 }
 
 // Request is the chat completion request body.
 type Request struct {
 	Model       string    `json:"model"`
 	Messages    []Message `json:"messages"`
+	Tools       []Tool    `json:"tools,omitempty"`
 	MaxTokens   int       `json:"max_tokens,omitempty"`
 	Temperature float64   `json:"temperature"`
 	Stream      bool      `json:"stream"`
@@ -59,18 +85,26 @@ type Response struct {
 
 // Result is the answer plus the raw request/response bodies for the event log.
 type Result struct {
-	Text     string
-	Usage    Usage
-	Model    string
-	Duration time.Duration
-	ReqBody  []byte
-	RespBody []byte
+	Text      string
+	ToolCalls []ToolCall
+	Message   Message // the assistant message as returned (append it to continue the conversation)
+	Usage     Usage
+	Model     string
+	Duration  time.Duration
+	ReqBody   []byte
+	RespBody  []byte
 }
 
 var thinkRe = regexp.MustCompile(`(?s)<think>.*?</think>`)
 
 // Chat sends one system + user prompt and returns the cleaned answer.
 func (c *Client) Chat(ctx context.Context, system, prompt string, maxTokens int, extraHeaders map[string]string) (*Result, error) {
+	return c.ChatMessages(ctx, []Message{{Role: "system", Content: system}, {Role: "user", Content: prompt}}, nil, maxTokens, extraHeaders)
+}
+
+// ChatMessages sends a conversation, optionally with tools. The result has
+// either tool calls or a non-empty answer.
+func (c *Client) ChatMessages(ctx context.Context, msgs []Message, tools []Tool, maxTokens int, extraHeaders map[string]string) (*Result, error) {
 	if c.BaseURL == "" {
 		return nil, fmt.Errorf("llm disabled")
 	}
@@ -80,7 +114,8 @@ func (c *Client) Chat(ctx context.Context, system, prompt string, maxTokens int,
 	}
 	body, _ := json.Marshal(Request{
 		Model:           c.Model,
-		Messages:        []Message{{Role: "system", Content: system}, {Role: "user", Content: prompt}},
+		Messages:        msgs,
+		Tools:           tools,
 		MaxTokens:       maxTokens,
 		Temperature:     0.2,
 		ReasoningEffort: "none",
@@ -117,10 +152,12 @@ func (c *Client) Chat(ctx context.Context, system, prompt string, maxTokens int,
 	if len(r.Choices) == 0 {
 		return res, fmt.Errorf("llm: no choices")
 	}
+	res.Message = r.Choices[0].Message
 	res.Text = strings.TrimSpace(thinkRe.ReplaceAllString(r.Choices[0].Message.Content, ""))
+	res.ToolCalls = r.Choices[0].Message.ToolCalls
 	res.Usage = r.Usage
 	res.Model = r.Model
-	if res.Text == "" {
+	if res.Text == "" && len(res.ToolCalls) == 0 {
 		return res, fmt.Errorf("llm: empty answer")
 	}
 	return res, nil

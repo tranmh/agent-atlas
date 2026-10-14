@@ -124,7 +124,7 @@ mcp_servers:
     prompts:
       - name: itinerary
         description: System prompt for an itinerary
-        text: You are a corporate travel agent. Before you answer, call search_flights for the outbound trip. Then propose the flights in at most two sentences. Do not invent flights.
+        text: You are a corporate travel agent. Use the tools to get data before answering. Do not invent flights.
   - id: tr-hr
     role: ops
     name: HR & Travel Policy

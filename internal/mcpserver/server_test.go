@@ -95,7 +95,7 @@ func TestDataServerResourceAndPrompt(t *testing.T) {
 	require.Contains(t, r.Contents[0].Text, "SKF 23148")
 	g, err := cs.GetPrompt(ctx, &mcp.GetPromptParams{Name: "diagnose"})
 	require.NoError(t, err)
-	require.Contains(t, g.Messages[0].Content.(*mcp.TextContent).Text, "read_trend")
+	require.Contains(t, g.Messages[0].Content.(*mcp.TextContent).Text, "Use the tools to get data before answering")
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "read_trend", Arguments: map[string]any{"asset": "T3", "signal": "bearing_temp", "days": 14}})
 	require.NoError(t, err)
 	require.Contains(t, res.Content[0].(*mcp.TextContent).Text, "bearing_temp of T3 over the last 14 days")

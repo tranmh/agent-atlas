@@ -124,7 +124,7 @@ mcp_servers:
     prompts:
       - name: answer_draft
         description: System prompt for a technical answer
-        text: You are a senior metals process engineer. Before you answer, call search_docs with the key words of the question. Then answer in at most three short sentences.
+        text: You are a senior metals process engineer. Use the tools to get data before answering.
   - id: kh-tm
     role: ops
     name: Translation Memory

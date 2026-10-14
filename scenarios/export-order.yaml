@@ -133,7 +133,7 @@ mcp_servers:
     prompts:
       - name: credit_review
         description: System prompt for a credit check
-        text: You are a credit analyst for industrial exports. Before you answer, call order_history for the customer. Then give a credit verdict in at most three short sentences.
+        text: You are a credit analyst for industrial exports. Use the tools to get data before answering.
   - id: ex-orders
     role: ops
     name: Order Management
