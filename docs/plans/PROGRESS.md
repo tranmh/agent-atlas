@@ -5,8 +5,8 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
 | # | Milestone | Status | Commit |
 |---|---|---|---|
 | M0 | Scaffolding: go.mod, copied helpers, Makefile, web skeleton, docs | done | c0cc234 |
-| M1 | agentgateway + hello agent, card rewrite verified | done | (this commit) |
-| M2 | scenario schema, generator, scripted executor | open | |
+| M1 | agentgateway + hello agent, card rewrite verified | done | 3091f7d |
+| M2 | scenario schema, generator, scripted executor | done | (this commit) |
 | M3 | orchestrator, event log, visualizer SSE | open | |
 | M4 | map, arcs, panels, replay | open | |
 | M5 | gateway policies, Jaeger, gateway view | open | |
@@ -14,6 +14,18 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
 | M7 | all scenarios, e2e, screenshots, README | open | |
 
 ## Deviations from the plan
+
+- All five scenarios were written in M2, not M7: the generator needs them, and they are data.
+- Plan steps use `call: send | stream | push` instead of method names. A2A v1.0 method names on the
+  wire are `SendMessage`, `SendStreamingMessage`, `GetTask`; the UI shows what is on the wire.
+- The LLM-backed agent is always the scenario's streaming agent, so the model's answer is streamed.
+- Gateway retries are demonstrated with agent-side chaos (`X-Chaos: 1` makes the streaming agent answer
+  503 to the first attempt of a message) instead of `random()` in the gateway, so runs stay deterministic.
+- The gateway LLM model entry has no fixed model: agents send `$LLM_MODEL` and the gateway passes it on.
+- Scenario colours (light-mode categorical slots, all-pairs validated with the dataviz validator):
+  sc blue `#2a78d6`, ex yellow `#eda100`, pm green `#008300`, tr magenta `#e87ba4`, kh aqua `#1baf7a`.
+  Normal-vision floor passes (15.6); CVD separation is in the 6–8 warn band, so every pin, arc label
+  and event row also carries the two-letter scenario code (secondary encoding).
 
 - `leaflet.markercluster` is not used. Thirty pins with per-scenario offsets stay readable without
   clustering, and arcs never have to re-anchor to a cluster icon.

@@ -1,0 +1,93 @@
+id: predictive-maintenance
+code: pm
+title: Predictive maintenance
+summary: >-
+  A pulp mill in Finland shows a vibration anomaly on a refiner. The Monitoring Center in Graz
+  analyses the signal, plans a maintenance window and orders parts. Writing to the PLC remotely is refused.
+color: "#008300"
+orchestrator:
+  id: pm-orchestrator
+  name: Monitoring Center
+  description: Watches machine data and starts maintenance before machines fail.
+  city: Graz
+  country: AT
+  lat: 47.0707
+  lon: 15.4395
+agents:
+  - id: pm-signal-analysis
+    name: Signal Analysis
+    description: Analyses vibration spectra and suggests a root cause.
+    city: Graz
+    country: AT
+    lat: 47.0707
+    lon: 15.4395
+    feature: streaming
+    mode: llm
+    skills:
+      - { id: analyze-signal, name: Analyze signal, description: Explain a vibration anomaly, tags: [analytics] }
+    llm:
+      system: You are a vibration analysis expert for pulp and paper refiners. Answer in at most three short sentences.
+      max_tokens: 160
+    script:
+      - { say: "Loading 72 h of vibration data from Äänekoski…", wait: 2.5s }
+      - { say: "Computing FFT spectrum…", wait: 2.5s }
+      - { say: "Peak found at 2× rotation frequency…", wait: 2s }
+      - llm: "Refiner anomaly: {{request}}. The spectrum shows a growing peak at twice the rotation frequency and rising axial vibration. Give the most likely root cause."
+        fallback: "A peak at 2× rotation frequency with axial vibration points to shaft misalignment. Realign the motor coupling."
+      - artifact: { name: analysis, data: { root_cause: shaft misalignment, confidence: 0.81, remaining_days: 12 } }
+      - { complete: "Root cause: shaft misalignment." }
+  - id: pm-planner
+    name: Maintenance Planner
+    description: Fits maintenance into the production plan.
+    city: Helsinki
+    country: FI
+    lat: 60.1699
+    lon: 24.9384
+    feature: multi_turn
+    skills:
+      - { id: plan-maintenance, name: Plan maintenance, description: Find a maintenance window, tags: [planning] }
+    script:
+      - { say: "Reading the production plan of the mill…", wait: 2.5s }
+      - { input_required: "Two windows are possible: Tuesday night or Saturday morning. Which one?" }
+      - { say: "Blocking {{input}} in the production plan…", wait: 2.5s }
+      - artifact: { name: window, data: { duration_h: 6, crew: 3 } }
+      - { complete: "Maintenance window booked." }
+  - id: pm-parts
+    name: Parts & Logistics
+    description: Sources parts from the regional hub. Long-running; reports by push notification.
+    city: Shanghai
+    country: CN
+    lat: 31.2304
+    lon: 121.4737
+    feature: long_task_push
+    skills:
+      - { id: source-parts, name: Source parts, description: Source and ship parts, tags: [logistics] }
+    script:
+      - { say: "Checking the coupling kit in the Shanghai hub…", wait: 3s }
+      - { say: "Kit found, packing…", wait: 3s }
+      - { say: "Booking express air freight to Helsinki…", wait: 3s }
+      - { say: "Handing over to the courier…", wait: 3s }
+      - artifact: { name: parts, data: { kit: coupling alignment kit, awb: 781-22004410, eta_days: 4 } }
+      - { complete: "Parts on the way." }
+  - id: pm-remote
+    name: Remote Intervention
+    description: Changes machine set points remotely. Writing to a PLC needs a human decision.
+    city: Äänekoski
+    country: FI
+    lat: 62.6046
+    lon: 25.7263
+    feature: restricted
+    skills:
+      - { id: read-setpoints, name: Read set points, description: Read machine set points, tags: [remote] }
+      - { id: restricted-plc-write, name: Write PLC, description: Change PLC set points (humans only), tags: [remote, critical] }
+    script:
+      - { say: "Connecting to the refiner controller (read-only)…", wait: 2.5s }
+      - artifact: { name: setpoints, data: { speed_rpm: 1500, plate_gap_mm: 0.42, load_mw: 11.8 } }
+      - { complete: "Set points read." }
+plan:
+  - { step: analyze, agent: pm-signal-analysis, call: stream, skill: analyze-signal, text: "Refiner RF02 at Äänekoski: vibration up 35 % in 72 h", say: "Monitoring Center streams the signal analysis." }
+  - { step: plan, agent: pm-planner, call: send, skill: plan-maintenance, text: "Plan a 6 h maintenance window for RF02 within 10 days", reply: "Saturday morning", say: "Monitoring Center asks the planner for a window." }
+  - { step: parts, agent: pm-parts, call: push, skill: source-parts, text: "Ship a coupling alignment kit to Äänekoski", say: "Monitoring Center orders parts and waits for a push notification." }
+  - { step: slowdown, agent: pm-remote, call: send, skill: restricted-plc-write, text: "Reduce RF02 load to 8 MW until maintenance", expect: denied, say: "Monitoring Center tries to write the PLC. The gateway policy should refuse it." }
+  - { step: read, agent: pm-remote, call: send, skill: read-setpoints, text: "Read RF02 set points", parallel: true, say: "Monitoring Center reads the set points instead." }
+closing: "RF02 maintenance planned before failure."

@@ -1,5 +1,6 @@
-// Command agent is one A2A agent. M1 spike: a hello agent that streams two
-// working updates and completes, used to verify agentgateway's card rewrite.
+// Command agent runs one A2A worker agent from the embedded scenarios.
+// AGENT_ID selects the agent; everything else (card, skills, script, feature)
+// comes from the scenario file.
 package main
 
 import (
@@ -7,74 +8,95 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"iter"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
-	"github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/tranmh/agent-atlas/internal/agent"
+	"github.com/tranmh/agent-atlas/internal/events"
 	"github.com/tranmh/agent-atlas/internal/httpx"
+	"github.com/tranmh/agent-atlas/internal/llm"
+	"github.com/tranmh/agent-atlas/internal/scenario"
+	"github.com/tranmh/agent-atlas/internal/script"
 )
 
 func main() {
-	healthFlag := flag.Bool("healthcheck", false, "GET own /healthz and exit 0 or 1")
+	healthFlag := flag.Bool("healthcheck", false, "GET own /healthz and exit 0 (ok) or 1")
 	flag.Parse()
-	log := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "agent")
-	port, _ := httpx.GetEnvInt("AGENT_PORT", 8080)
-	if *healthFlag {
-		os.Exit(httpx.RunHealthcheck(fmt.Sprintf("http://127.0.0.1:%d/healthz", port)))
-	}
-	publicURL := httpx.GetEnv("AGENT_PUBLIC_URL", fmt.Sprintf("http://127.0.0.1:%d", port))
 
-	card := &a2a.AgentCard{
-		Name:        "Hello Agent",
-		Description: "Says hello, slowly",
-		Version:     "0.1.0",
-		SupportedInterfaces: []*a2a.AgentInterface{
-			a2a.NewAgentInterface(publicURL+"/invoke", a2a.TransportProtocolJSONRPC),
-		},
-		DefaultInputModes:  []string{"text"},
-		DefaultOutputModes: []string{"text"},
-		Capabilities:       a2a.AgentCapabilities{Streaming: true},
-		Skills:             []a2a.AgentSkill{{ID: "hello", Name: "Hello", Description: "Greets", Tags: []string{"demo"}}},
+	port, err := httpx.GetEnvInt("AGENT_PORT", 8080)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
-	exec := a2asrv.AgentExecutorFunc(func(ctx context.Context, ec *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
-		return func(yield func(a2a.Event, error) bool) {
-			if ec.StoredTask == nil {
-				if !yield(a2a.NewSubmittedTask(ec, ec.Message), nil) {
-					return
-				}
-			}
-			for _, s := range []string{"Thinking…", "Still thinking…"} {
-				if !yield(a2a.NewStatusUpdateEvent(ec, a2a.TaskStateWorking, a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart(s))), nil) {
-					return
-				}
-				time.Sleep(500 * time.Millisecond)
-			}
-			yield(a2a.NewStatusUpdateEvent(ec, a2a.TaskStateCompleted, a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("Hello, world!"))), nil)
+	if *healthFlag {
+		os.Exit(httpx.RunHealthcheck(fmt.Sprintf("http://127.0.0.1:%d%s", port, agent.HealthPath)))
+	}
+	id, err := httpx.RequireEnv("AGENT_ID")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	log := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "agent", "agent", id)
+
+	cat, err := scenario.LoadEmbedded()
+	if err != nil {
+		log.Error("scenarios", "err", err)
+		os.Exit(1)
+	}
+	sc, a := cat.FindAgent(id)
+	if a == nil {
+		log.Error("unknown agent id", "id", id)
+		os.Exit(1)
+	}
+	speed, _ := strconv.ParseFloat(httpx.GetEnv("SCRIPT_SPEED", "1"), 64)
+	limit, _ := httpx.GetEnvInt("EVENT_PAYLOAD_MAX_BYTES", events.DefaultPayloadLimit)
+	reporter := events.NewReporter(httpx.GetEnv("VISUALIZER_URL", ""), log)
+	defer reporter.Close()
+
+	var chatter script.Chatter
+	if a.Mode == scenario.ModeLLM && httpx.GetEnvBool("LLM_ENABLED", true) {
+		chatter = &llm.Client{
+			BaseURL: httpx.GetEnv("LLM_BASE_URL", "http://agentgateway:3100/v1"),
+			Model:   httpx.GetEnv("LLM_MODEL", "qwen3:1.7b"),
+			HTTP:    &http.Client{Timeout: 60 * time.Second},
 		}
+	}
+
+	h := agent.NewHandler(agent.Config{
+		Scenario:         sc,
+		Agent:            a,
+		PublicURL:        httpx.GetEnv("AGENT_PUBLIC_URL", fmt.Sprintf("http://%s:%d", id, port)),
+		Emit:             reporter,
+		LLM:              chatter,
+		DefaultSpeed:     speed,
+		PayloadLimit:     limit,
+		Log:              log,
+		PushAllowPrivate: true, // webhooks live on the compose network
 	})
-	h := a2asrv.NewHandler(exec)
-	mux := http.NewServeMux()
-	mux.Handle("/invoke", a2asrv.NewJSONRPCHandler(h))
-	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(card))
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { httpx.WriteJSON(w, 200, map[string]string{"status": "ok"}) })
-	srv := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {
-		log.Info("listening", "addr", srv.Addr)
+		log.Info("listening", "addr", srv.Addr, "scenario", sc.ID, "feature", a.Feature, "mode", a.Mode)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("listen", "err", err)
 			os.Exit(1)
 		}
 	}()
 	<-ctx.Done()
-	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(sctx)
+	_ = srv.Shutdown(shutCtx)
+	log.Info("stopped")
 }

@@ -48,3 +48,11 @@ logs: ## Follow logs (S=<service> for one)
 card: ## Fetch an agent card through the gateway (ID=<agent id>)
 	@test -n "$(ID)" || (echo "usage: make card ID=<agent id>" && exit 1)
 	@curl -s localhost:$(GATEWAY_HOST_PORT)/agents/$(ID)/.well-known/agent-card.json | jq .
+
+.PHONY: gen
+gen: ## Regenerate gateway config and compose agents from scenarios/*.yaml
+	go run ./cmd/atlasgen
+
+.PHONY: gen-check
+gen-check: ## Fail if generated files are stale
+	go run ./cmd/atlasgen -check

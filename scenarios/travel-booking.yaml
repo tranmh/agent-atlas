@@ -1,0 +1,92 @@
+id: travel-booking
+code: tr
+title: Business travel booking
+summary: >-
+  A traveller in Munich needs a trip to New Delhi. The travel desk books flights and hotel and
+  applies for a visa. Business class is refused by the expense policy agent's route.
+color: "#e87ba4"
+orchestrator:
+  id: tr-orchestrator
+  name: Travel Desk
+  description: Plans business trips end to end.
+  city: Munich
+  country: DE
+  lat: 48.1351
+  lon: 11.5820
+agents:
+  - id: tr-flights
+    name: Flights
+    description: Searches flights and writes the itinerary.
+    city: Frankfurt
+    country: DE
+    lat: 50.1109
+    lon: 8.6821
+    feature: streaming
+    mode: llm
+    skills:
+      - { id: search-flights, name: Search flights, description: Find and hold flights, tags: [travel] }
+    llm:
+      system: You are a corporate travel agent. Answer in at most three short sentences.
+      max_tokens: 160
+    script:
+      - { say: "Searching flights Munich → New Delhi…", wait: 2.5s }
+      - { say: "Comparing 27 connections…", wait: 2.5s }
+      - llm: "Trip request: {{request}}. Best option: LH762 MUC-DEL 13:05 → 00:20 next day, return AI121 DEL-FRA. Write a two-sentence itinerary summary."
+        fallback: "Outbound LH762 Munich to New Delhi on Monday 13:05, arriving 00:20. Return AI121 on Friday via Frankfurt."
+      - artifact: { name: itinerary, data: { outbound: LH762, return: AI121, cabin: economy, hold_hours: 24 } }
+      - { complete: "Flights on hold for 24 h." }
+  - id: tr-hotel
+    name: Hotel
+    description: Books hotels near the destination.
+    city: Munich
+    country: DE
+    lat: 48.1351
+    lon: 11.5820
+    feature: multi_turn
+    skills:
+      - { id: book-hotel, name: Book hotel, description: Book a hotel, tags: [travel] }
+    script:
+      - { say: "Searching hotels in Gurugram…", wait: 2.5s }
+      - { input_required: "Check-in Monday night or Tuesday? The flight lands after midnight." }
+      - { say: "Booking for check-in {{input}}…", wait: 2.5s }
+      - artifact: { name: hotel, data: { hotel: Oberoi Gurgaon, nights: 4 } }
+      - { complete: "Hotel booked." }
+  - id: tr-visa
+    name: Visa Service
+    description: Applies for visas. Takes days; reports by push notification.
+    city: New Delhi
+    country: IN
+    lat: 28.6139
+    lon: 77.2090
+    feature: long_task_push
+    skills:
+      - { id: apply-visa, name: Apply for visa, description: Apply for an e-business visa, tags: [visa] }
+    script:
+      - { say: "Filling in the e-business visa form…", wait: 3s }
+      - { say: "Uploading passport and invitation letter…", wait: 3s }
+      - { say: "Paying the visa fee…", wait: 3s }
+      - { say: "Waiting for the embassy decision…", wait: 3s }
+      - artifact: { name: visa, data: { type: e-business visa, status: granted, valid_days: 365 } }
+      - { complete: "Visa granted." }
+  - id: tr-expense
+    name: Expense Policy
+    description: Approves travel costs within the policy.
+    city: Munich
+    country: DE
+    lat: 48.1351
+    lon: 11.5820
+    feature: restricted
+    skills:
+      - { id: approve-economy, name: Approve economy, description: Approve economy travel, tags: [expense] }
+      - { id: restricted-business-class, name: Approve business class, description: Upgrade to business class (managers only), tags: [expense] }
+    script:
+      - { say: "Checking the trip against the travel policy…", wait: 2.5s }
+      - artifact: { name: approval, data: { approved: true, budget_eur: 2400 } }
+      - { complete: "Economy trip approved." }
+plan:
+  - { step: flights, agent: tr-flights, call: stream, skill: search-flights, text: "Trip Munich → New Delhi, Monday to Friday, customer workshop", say: "Travel Desk streams the flight search." }
+  - { step: hotel, agent: tr-hotel, call: send, skill: book-hotel, text: "Hotel near Gurugram for four nights", reply: "Monday night", say: "Travel Desk asks Hotel for a room." }
+  - { step: visa, agent: tr-visa, call: push, skill: apply-visa, text: "E-business visa for India, German passport", say: "Travel Desk applies for the visa and waits for a push notification." }
+  - { step: upgrade, agent: tr-expense, call: send, skill: restricted-business-class, text: "Upgrade the long-haul flight to business class", expect: denied, say: "Travel Desk asks for business class. The gateway policy should refuse it." }
+  - { step: approve, agent: tr-expense, call: send, skill: approve-economy, text: "Approve the economy trip, 2 400 EUR", parallel: true, say: "Travel Desk gets the economy trip approved." }
+closing: "Trip to New Delhi booked."

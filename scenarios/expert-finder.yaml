@@ -1,0 +1,91 @@
+id: expert-finder
+code: kh
+title: Global expert finder
+summary: >-
+  An engineer in Pohang asks a technical question. The knowledge hub in Graz searches documents,
+  matches an expert and translates the answer. Salary data stays behind the HR policy.
+color: "#1baf7a"
+orchestrator:
+  id: kh-orchestrator
+  name: Knowledge Hub
+  description: Connects questions with documents and people.
+  city: Graz
+  country: AT
+  lat: 47.0707
+  lon: 15.4395
+agents:
+  - id: kh-doc-search
+    name: Document Search
+    description: Searches manuals and reports and drafts an answer.
+    city: Graz
+    country: AT
+    lat: 47.0707
+    lon: 15.4395
+    feature: streaming
+    mode: llm
+    skills:
+      - { id: search-docs, name: Search documents, description: Search and draft an answer, tags: [knowledge] }
+    llm:
+      system: You are a senior metals process engineer. Answer in at most three short sentences.
+      max_tokens: 160
+    script:
+      - { say: "Searching 48 000 manuals and service reports…", wait: 2.5s }
+      - { say: "Ranking 19 relevant passages…", wait: 2.5s }
+      - llm: "Question from a steel plant engineer: {{request}}. Relevant finding: strip edge cracks rose after the coolant flow was reduced by 15 %. Draft a short answer."
+        fallback: "Edge cracks after a coolant reduction usually come from uneven strip cooling. Restore the coolant flow and check the edge sprays."
+      - artifact: { name: answer-draft, data: { sources: 3, confidence: 0.74 } }
+      - { complete: "Answer drafted." }
+  - id: kh-expert-match
+    name: Expert Matching
+    description: Finds the right colleague for a question.
+    city: Vienna
+    country: AT
+    lat: 48.2082
+    lon: 16.3738
+    feature: multi_turn
+    skills:
+      - { id: match-expert, name: Match expert, description: Find a colleague who can help, tags: [people] }
+    script:
+      - { say: "Matching the question against 1 200 expert profiles…", wait: 2.5s }
+      - { input_required: "How urgent is it: today, this week, or this month?" }
+      - { say: "Looking for experts available {{input}}…", wait: 2.5s }
+      - artifact: { name: expert, data: { expert: Dr. Maria Hofer, field: cold rolling, slot: today 15:00 CET } }
+      - { complete: "Expert found." }
+  - id: kh-translation
+    name: Translation
+    description: Translates technical answers. Takes a while; reports by push notification.
+    city: Tokyo
+    country: JP
+    lat: 35.6762
+    lon: 139.6503
+    feature: long_task_push
+    skills:
+      - { id: translate, name: Translate, description: Translate a technical text, tags: [language] }
+    script:
+      - { say: "Extracting technical terms…", wait: 3s }
+      - { say: "Translating English → Korean…", wait: 3s }
+      - { say: "Terminology review…", wait: 3s }
+      - artifact: { name: translation, data: { language: ko, words: 212 } }
+      - { complete: "Translation ready." }
+  - id: kh-hr-directory
+    name: HR Directory
+    description: Looks up colleagues. Salary data is restricted.
+    city: Graz
+    country: AT
+    lat: 47.0707
+    lon: 15.4395
+    feature: restricted
+    skills:
+      - { id: lookup-contact, name: Look up contact, description: Business contact details, tags: [people] }
+      - { id: restricted-salary-lookup, name: Salary lookup, description: Salary data (HR only), tags: [people, critical] }
+    script:
+      - { say: "Looking up the business contact…", wait: 2s }
+      - artifact: { name: contact, data: { name: Dr. Maria Hofer, phone: "+43 316 6902 0", teams: maria.hofer } }
+      - { complete: "Contact found." }
+plan:
+  - { step: search, agent: kh-doc-search, call: stream, skill: search-docs, text: "Why do edge cracks appear on cold-rolled strip after we reduced the coolant flow? (Pohang plant)", say: "Knowledge Hub streams the document search." }
+  - { step: expert, agent: kh-expert-match, call: send, skill: match-expert, text: "Find an expert in cold rolling and strip cooling", reply: "today", say: "Knowledge Hub asks for a matching expert." }
+  - { step: translate, agent: kh-translation, call: push, skill: translate, text: "Translate the answer draft to Korean", say: "Knowledge Hub sends the answer for translation and waits for a push notification." }
+  - { step: salary, agent: kh-hr-directory, call: send, skill: restricted-salary-lookup, text: "What is Dr. Hofer's salary band?", expect: denied, say: "Knowledge Hub asks for salary data. The gateway policy should refuse it." }
+  - { step: contact, agent: kh-hr-directory, call: send, skill: lookup-contact, text: "Business contact of Dr. Maria Hofer", parallel: true, say: "Knowledge Hub looks up the business contact." }
+closing: "Question answered, expert connected."

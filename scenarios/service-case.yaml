@@ -1,0 +1,96 @@
+id: service-case
+code: sc
+title: ANDRITZ service case
+summary: >-
+  A hydro plant in Brazil reports a bearing alarm on turbine T3. The Service Desk in Göppingen
+  delegates diagnosis, spare parts, shipping and a field visit to specialist agents.
+color: "#2a78d6"
+orchestrator:
+  id: sc-orchestrator
+  name: Service Desk
+  description: Receives service tickets and delegates the work to specialist agents.
+  city: Göppingen
+  country: DE
+  lat: 48.7026
+  lon: 9.6527
+agents:
+  - id: sc-diagnosis
+    name: Diagnosis
+    description: Reads fault memory and vibration data and names the likely fault.
+    city: Göppingen
+    country: DE
+    lat: 48.7026
+    lon: 9.6527
+    feature: streaming
+    mode: llm
+    skills:
+      - { id: analyze-fault, name: Analyze fault memory, description: Diagnose a machine alarm, tags: [diagnosis] }
+    llm:
+      system: You are a hydro turbine diagnostics engineer. Answer in at most three short sentences.
+      max_tokens: 160
+    script:
+      - { say: "Reading fault memory of turbine T3…", wait: 2.5s }
+      - { say: "Correlating bearing temperature with vibration data…", wait: 2.5s }
+      - { say: "Comparing with 312 similar cases…", wait: 2s }
+      - llm: "A hydro turbine reports: {{request}}. Bearing B3 runs 18 K above normal and vibration rose 40 % in two weeks. What is the most likely fault and the next action?"
+        fallback: "Most likely fault: bearing B3 overheating from lubrication loss. Replace the bearing and check the oil circuit."
+      - artifact: { name: diagnosis, data: { fault: bearing B3 overheating, confidence: 0.87, part: SKF 23148 } }
+      - { complete: "Diagnosis complete: bearing B3 must be replaced." }
+  - id: sc-spare-parts
+    name: Spare Parts
+    description: Checks bills of materials and warehouse stock.
+    city: Rotterdam
+    country: NL
+    lat: 51.9244
+    lon: 4.4777
+    feature: multi_turn
+    skills:
+      - { id: find-part, name: Find spare part, description: Locate a part in the central warehouse, tags: [parts] }
+    script:
+      - { say: "Looking up the bill of materials for turbine T3…", wait: 2s }
+      - { input_required: "Which machine serial number is affected? Two bearing variants exist for T3." }
+      - { say: "Serial {{input}} uses bearing SKF 23148. Checking stock…", wait: 2.5s }
+      - { say: "Reserving one unit in the Rotterdam warehouse…", wait: 2s }
+      - artifact: { name: reservation, data: { part: SKF 23148, stock: 3, reserved: 1, warehouse: Rotterdam } }
+      - { complete: "One SKF 23148 reserved." }
+  - id: sc-logistics
+    name: Logistics
+    description: Books freight and tracks shipments. Long-running work, reported by push notification.
+    city: Singapore
+    country: SG
+    lat: 1.3521
+    lon: 103.8198
+    feature: long_task_push
+    skills:
+      - { id: ship-part, name: Ship part, description: Book express freight to a plant, tags: [logistics] }
+    script:
+      - { say: "Requesting express freight quotes…", wait: 3s }
+      - { say: "Three carriers answered, choosing the fastest…", wait: 3s }
+      - { say: "Booking air freight Rotterdam → São Paulo…", wait: 3s }
+      - { say: "Preparing customs documents for Brazil…", wait: 3s }
+      - { say: "Arranging truck São Paulo → Foz do Iguaçu…", wait: 3s }
+      - artifact: { name: shipment, data: { carrier: AirCargo Express, awb: 176-55512344, eta_days: 3 } }
+      - { complete: "Shipment booked, arrives in 3 days." }
+  - id: sc-field-service
+    name: Field Service
+    description: Schedules technicians on site. Plant shutdowns need a human decision.
+    city: Foz do Iguaçu
+    country: BR
+    lat: -25.5163
+    lon: -54.5854
+    feature: restricted
+    skills:
+      - { id: schedule-visit, name: Schedule visit, description: Book a technician visit, tags: [field] }
+      - { id: restricted-shutdown-plant, name: Shut down plant, description: Remote shutdown (humans only), tags: [field, critical] }
+    script:
+      - { say: "Checking technician calendars in Paraná…", wait: 2.5s }
+      - { say: "Technician Ana Souza is available on Friday…", wait: 2s }
+      - artifact: { name: visit, data: { technician: Ana Souza, date: Friday 08:00, plant: Foz do Iguaçu } }
+      - { complete: "Visit booked for Friday 08:00." }
+plan:
+  - { step: diagnose, agent: sc-diagnosis, call: stream, skill: analyze-fault, text: "Ticket #4711: turbine T3 bearing alarm at Foz do Iguaçu", say: "Service Desk asks Diagnosis to analyse the alarm and watches the stream." }
+  - { step: parts, agent: sc-spare-parts, call: send, skill: find-part, text: "Need the bearing SKF 23148 for turbine T3", reply: "SN-T3-2019-0042", say: "Service Desk asks Spare Parts for the bearing." }
+  - { step: ship, agent: sc-logistics, call: push, skill: ship-part, text: "Ship one SKF 23148 from Rotterdam to Foz do Iguaçu", say: "Service Desk hands shipping to Logistics and waits for a push notification." }
+  - { step: shutdown, agent: sc-field-service, call: send, skill: restricted-shutdown-plant, text: "Shut down turbine T3 until the part arrives", expect: denied, say: "Service Desk tries a remote shutdown. The gateway policy should refuse it." }
+  - { step: visit, agent: sc-field-service, call: send, skill: schedule-visit, text: "Schedule a technician to replace bearing B3 on turbine T3", parallel: true, say: "Service Desk books a technician visit instead." }
+closing: "Ticket #4711 closed: bearing reserved, shipped, technician booked."

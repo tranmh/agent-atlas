@@ -1,0 +1,92 @@
+id: export-order
+code: ex
+title: Export order & customs
+summary: >-
+  A paper mill in Canada orders a refiner. The Sales Hub in Vienna checks credit, export control,
+  customs and shipping. Hazardous cargo needs a human decision.
+color: "#eda100"
+orchestrator:
+  id: ex-orchestrator
+  name: Sales Hub
+  description: Turns customer orders into delivered goods.
+  city: Vienna
+  country: AT
+  lat: 48.2082
+  lon: 16.3738
+agents:
+  - id: ex-credit-check
+    name: Credit Check
+    description: Rates the customer's credit risk.
+    city: Vienna
+    country: AT
+    lat: 48.2082
+    lon: 16.3738
+    feature: streaming
+    mode: llm
+    skills:
+      - { id: assess-credit, name: Assess credit, description: Rate a customer's payment risk, tags: [finance] }
+    llm:
+      system: You are a credit analyst for industrial equipment exports. Answer in at most three short sentences.
+      max_tokens: 160
+    script:
+      - { say: "Fetching payment history of Laurentide Paper Inc…", wait: 2.5s }
+      - { say: "Checking credit insurer limits…", wait: 2.5s }
+      - llm: "Customer order: {{request}}. Payment history: 14 invoices, all paid within 35 days. Insurer limit 6 M EUR. Give a short credit verdict."
+        fallback: "Low risk: all 14 invoices paid on time and the order is within the insurer limit. Approve with standard terms."
+      - artifact: { name: credit, data: { rating: A-, limit_eur: 6000000, terms: 30 days net } }
+      - { complete: "Credit approved." }
+  - id: ex-export-control
+    name: Export Control
+    description: Screens goods and end users against export regulations.
+    city: Brussels
+    country: BE
+    lat: 50.8503
+    lon: 4.3517
+    feature: multi_turn
+    skills:
+      - { id: screen-export, name: Screen export, description: Check goods and end user, tags: [compliance] }
+    script:
+      - { say: "Classifying the refiner under EU dual-use rules…", wait: 2.5s }
+      - { input_required: "Please provide the end-user certificate number." }
+      - { say: "Validating certificate {{input}}…", wait: 2.5s }
+      - artifact: { name: clearance, data: { classification: not dual-use, licence: none required } }
+      - { complete: "Export cleared." }
+  - id: ex-customs
+    name: Customs Broker
+    description: Files export and import declarations. Takes a while; reports by push notification.
+    city: Rotterdam
+    country: NL
+    lat: 51.9244
+    lon: 4.4777
+    feature: long_task_push
+    skills:
+      - { id: file-customs, name: File customs, description: Prepare export and import declarations, tags: [customs] }
+    script:
+      - { say: "Drafting the EU export declaration…", wait: 3s }
+      - { say: "Submitting to Dutch customs…", wait: 3s }
+      - { say: "Waiting for release from customs…", wait: 3s }
+      - { say: "Pre-filing the Canadian import declaration…", wait: 3s }
+      - artifact: { name: declaration, data: { mrn: 26NL0000000123456, status: released } }
+      - { complete: "Customs released." }
+  - id: ex-shipping
+    name: Shipping
+    description: Books ocean freight. Hazardous cargo needs a human decision.
+    city: Singapore
+    country: SG
+    lat: 1.3521
+    lon: 103.8198
+    feature: restricted
+    skills:
+      - { id: book-freight, name: Book freight, description: Book ocean freight, tags: [shipping] }
+      - { id: restricted-hazardous-cargo, name: Ship hazardous cargo, description: Declare dangerous goods (humans only), tags: [shipping, critical] }
+    script:
+      - { say: "Searching sailings Rotterdam → Montreal…", wait: 2.5s }
+      - artifact: { name: booking, data: { vessel: MSC Aurora, departs: in 5 days, container: 40ft HC } }
+      - { complete: "Freight booked." }
+plan:
+  - { step: credit, agent: ex-credit-check, call: stream, skill: assess-credit, text: "Order 88-1203: TwinFlo refiner for Laurentide Paper Inc, Trois-Rivières, 4.2 M EUR", say: "Sales Hub streams a credit check." }
+  - { step: export, agent: ex-export-control, call: send, skill: screen-export, text: "Screen TwinFlo refiner, end user Laurentide Paper Inc, Canada", reply: "EUC-CA-2026-7781", say: "Sales Hub asks Export Control for clearance." }
+  - { step: customs, agent: ex-customs, call: push, skill: file-customs, text: "File export and import declarations for order 88-1203", say: "Sales Hub hands customs to the broker and waits for a push notification." }
+  - { step: hazmat, agent: ex-shipping, call: send, skill: restricted-hazardous-cargo, text: "Declare the refiner's lubricant drums as dangerous goods", expect: denied, say: "Sales Hub tries to declare hazardous cargo. The gateway policy should refuse it." }
+  - { step: freight, agent: ex-shipping, call: send, skill: book-freight, text: "Book ocean freight Rotterdam → Montreal, one 40ft container", parallel: true, say: "Sales Hub books regular freight." }
+closing: "Order 88-1203 ready to ship."
