@@ -128,3 +128,7 @@ e2e-docker: ## Run the e2e suite inside the Playwright image (host network)
 .PHONY: screenshots
 screenshots: ## Regenerate docs/screenshots/*.png from the running stack (~2 min)
 	cd e2e && npx playwright test --project=screenshots
+
+.PHONY: test-infra
+test-infra: ## Infra regression tests on a fresh clone (needs Docker and the built images)
+	./scripts/test-infra.sh
