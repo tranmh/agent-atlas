@@ -23,8 +23,8 @@ MCP extension, plan: [2026-10-14-mcp-plan.md](2026-10-14-mcp-plan.md).
 | M11 | Shared wire capture, MCP client, scripted tool/resource steps, events | done | 04a6c7d |
 | M12 | LLM tool loop over MCP (prompts/get, tools/list, tool_calls) | done | 24f1f0e |
 | M13 | Visualizer MCP decoding, UI hexagons, MCP flights, panels | done | 31975bf |
-| M14 | e2e, screenshots, sample, docs | done | (this commit) |
-| M15 | Fable code review of the MCP changes, TDD fixes | open | |
+| M14 | e2e, screenshots, sample, docs | done | 0a92c68 |
+| M15 | Fable code review of the MCP changes, TDD fixes | done | (this commit), see docs/reviews/2026-10-14-fable-mcp-review.md |
 
 ## Deviations from the plan
 

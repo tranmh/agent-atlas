@@ -1,7 +1,7 @@
 # agent-atlas: A2A agents on a world map behind agentgateway.
 # `make up` (= docker compose up -d --build --wait). Settings come from .env.
 # Container ports are fixed; only the HOST side is configurable (*_HOST_PORT).
-# agentgateway, the 25 agents and the 5 orchestrators are generated into compose.agents.yml (`make gen`).
+# agentgateway, the 20 agents, 5 orchestrators and 10 MCP servers are generated into compose.agents.yml (`make gen`).
 name: agent-atlas
 
 include:
