@@ -12,7 +12,19 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
 | M5 | gateway policies, Jaeger, gateway view | done | 3dc6cd9 |
 | M6 | Ollama + LLM agents through the gateway | done | 3b5d777 |
 | M7 | all scenarios, e2e, screenshots, README | done | ab70359 |
-| M8 | Fable code review; critical/high findings fixed test-first (red commit, then green commit) | done | (this commit), see docs/reviews/2026-10-14-fable-code-review.md |
+| M8 | Fable code review; critical/high findings fixed test-first (red commit, then green commit) | done | f576cd0, see docs/reviews/2026-10-14-fable-code-review.md |
+
+MCP extension, plan: [2026-10-14-mcp-plan.md](2026-10-14-mcp-plan.md).
+
+| # | Milestone | Status | Commit |
+|---|---|---|---|
+| M9 | Spike: MCP route, multiplexing, progress, authorization through agentgateway | open | |
+| M10 | Scenario schema for MCP servers, `cmd/mcpserver`, generated routes and compose | open | |
+| M11 | Shared wire capture, MCP client, scripted tool/resource steps, events | open | |
+| M12 | LLM tool loop over MCP (prompts/get, tools/list, tool_calls) | open | |
+| M13 | Visualizer MCP decoding, UI hexagons, MCP flights, panels | open | |
+| M14 | e2e, screenshots, sample, docs | open | |
+| M15 | Fable code review of the MCP changes, TDD fixes | open | |
 
 ## Deviations from the plan
 
