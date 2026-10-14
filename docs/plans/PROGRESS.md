@@ -6,8 +6,8 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
 |---|---|---|---|
 | M0 | Scaffolding: go.mod, copied helpers, Makefile, web skeleton, docs | done | c0cc234 |
 | M1 | agentgateway + hello agent, card rewrite verified | done | 3091f7d |
-| M2 | scenario schema, generator, scripted executor | done | (this commit) |
-| M3 | orchestrator, event log, visualizer SSE | open | |
+| M2 | scenario schema, generator, scripted executor | done | 2ef8ab9 |
+| M3 | orchestrator, event log, visualizer SSE | done | (this commit) |
 | M4 | map, arcs, panels, replay | open | |
 | M5 | gateway policies, Jaeger, gateway view | open | |
 | M6 | Ollama + LLM agents through the gateway | open | |
@@ -32,6 +32,14 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
 - npm 10.9 crashes building the ideal tree from scratch (`edgesOut` of null). The web lockfile was
   seeded from `cp_amap_pci/web/package-lock.json`; `npm install` then pruned the unused packages.
 
+- M3 has no browser event list; the real UI lands in M4. M3 is verified with `make tail-events` and
+  `curl localhost:8095/api/events`.
+- The orchestrator's wire capture is an `http.RoundTripper` (not a2a-go call interceptors), so the event
+  log shows the JSON-RPC bodies and SSE frames exactly as sent.
+- agentgateway moved into the generated `compose.agents.yml`: it caches backend addresses, so it must
+  restart when agent containers are recreated (`depends_on: {condition: service_healthy, restart: true}`).
+  After recreating a single agent by hand, run `docker compose restart agentgateway`.
+
 ## Verified facts (M1 spike, agentgateway v1.6.0 + a2a-go v2.6.0)
 
 - Path prefix `/agents/<id>` plus `urlRewrite.path.prefix: /` works with A2A card rewriting: the card
@@ -50,6 +58,11 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
 - `llm: {gateways: llm, models: [{name: "*", provider: ollama, params: {model, baseUrl}}]}` is accepted.
 - `config.adminAddr: 0.0.0.0:15000` exposes the gateway UI to the host.
 - Request headers reach the a2a-go executor as `ExecutorContext.ServiceParams` (lower-cased keys).
+
+- agentgateway expands `$VARS` everywhere in its config file, comments included. An unset variable makes
+  the reload fail and the gateway keeps the previous config. A test in `cmd/atlasgen` guards this.
+- The gateway hot-reloads `config.yaml` when the file changes.
+- The access log's OTLP record carries `retry.attempt` (1 after one retry) and `trace.id`.
 
 ## Notes for resuming
 

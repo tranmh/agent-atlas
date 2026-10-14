@@ -56,3 +56,27 @@ gen: ## Regenerate gateway config and compose agents from scenarios/*.yaml
 .PHONY: gen-check
 gen-check: ## Fail if generated files are stale
 	go run ./cmd/atlasgen -check
+
+SCENARIO ?= sc
+SPEED ?= 1
+CHAOS ?= false
+BREAKPOINTS ?= false
+
+.PHONY: run
+run: ## Start a run: SCENARIO=sc|ex|pm|tr|kh|all SPEED=1 CHAOS=true BREAKPOINTS=true
+	@curl -sf -X POST localhost:$(VISUALIZER_HOST_PORT)/api/runs -H 'content-type: application/json' \
+		-d '{"scenario":"$(SCENARIO)","speed":$(SPEED),"chaos":$(CHAOS),"breakpoints":$(BREAKPOINTS)}' | jq -c . \
+		|| (echo "run failed: is the stack up (make up)?" && exit 1)
+
+.PHONY: gate-release
+gate-release: ## Release all breakpoint gates
+	@curl -s -X POST localhost:$(VISUALIZER_HOST_PORT)/api/gate/release -d '{"all":true}' | jq -c .
+
+.PHONY: tail-events
+tail-events: ## Follow the live event stream as one line per event
+	@curl -sN localhost:$(VISUALIZER_HOST_PORT)/api/events/stream | sed -un 's/^data: //p' | \
+		jq -r --unbuffered 'select(.kind) | [.id, .scenario, .source, .kind, .from // "", .to // "", .note // ""] | @tsv'
+
+.PHONY: clean-sessions
+clean-sessions: ## Delete recorded sessions (data/sessions/*.jsonl)
+	rm -f data/sessions/*.jsonl
