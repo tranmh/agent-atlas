@@ -18,7 +18,7 @@ MCP extension, plan: [2026-10-14-mcp-plan.md](2026-10-14-mcp-plan.md).
 
 | # | Milestone | Status | Commit |
 |---|---|---|---|
-| M9 | Spike: MCP route, multiplexing, progress, authorization through agentgateway | open | |
+| M9 | Spike: MCP route, multiplexing, progress, authorization through agentgateway | done | (this commit) |
 | M10 | Scenario schema for MCP servers, `cmd/mcpserver`, generated routes and compose | open | |
 | M11 | Shared wire capture, MCP client, scripted tool/resource steps, events | open | |
 | M12 | LLM tool loop over MCP (prompts/get, tools/list, tool_calls) | open | |
@@ -101,6 +101,27 @@ MCP extension, plan: [2026-10-14-mcp-plan.md](2026-10-14-mcp-plan.md).
   the reload fail and the gateway keeps the previous config. A test in `cmd/atlasgen` guards this.
 - The gateway hot-reloads `config.yaml` when the file changes.
 - The access log's OTLP record carries `retry.attempt` (1 after one retry) and `trace.id`.
+
+## Verified facts (M9 MCP spike, agentgateway v1.6.0 + go-sdk v1.8.0)
+
+Two Go MCP servers (Streamable HTTP, stateful) behind one route with `backends: [{mcp: {statefulMode: stateful, targets: [...]}}]`:
+
+- Multiplexing prefixes names with `<target>_`: tools `historian_read_trend`, prompts `historian_diagnose`.
+  Resource URIs become `<target>+<uri>` (`historian+historian://sc/manual`); reading the original URI fails (500),
+  the rewritten one works. Clients must use the names from `*/list`.
+- Progress notifications (`notifications/progress` with the client's progress token) pass through the gateway.
+  `tools/call` answers come back as `text/event-stream`, with progress frames before the result.
+- `mcpAuthorization.rules` (CEL) see both `mcp.tool.*` and `request.headers`, e.g.
+  `!(has(mcp.tool) && mcp.tool.name.startsWith("restricted_")) || request.headers["x-caller"] == "sc-admin"`.
+  `mcp.tool.name` is the unprefixed upstream name.
+- A denied tool is removed from `tools/list`; calling it anyway returns **HTTP 400** with JSON-RPC error
+  "Unknown tool: erp_restricted_shutdown" (access log `reason: MCP`). It never reaches the server. There is no 403.
+- The HTTP-level `authorization` policy on the same route returns 403 at `initialize` for a foreign caller.
+- Request headers (`X-Caller`, ...) are forwarded to the upstream MCP server.
+- Access log per MCP request: `mcp.method.name` (initialize, notifications/initialized, tools/list, tools/call,
+  resources/read, prompts/get, ...), `mcp.target`, `mcp.resource.uri`, `mcp.session.id`, `http.status`, `duration`,
+  `error`/`reason`. The tool name is not logged by default; `accessLog.add: {mcp_tool: 'mcp.tool.name'}` adds it.
+- qwen3:1.7b function calling (OpenAI `tools`, `reasoning_effort: none`) picked a sensible tool 3/3 times.
 
 ## Notes for resuming
 
