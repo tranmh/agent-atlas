@@ -23,9 +23,11 @@ type Reporter struct {
 	url    string
 	client *http.Client
 	log    *slog.Logger
-	ch     chan Event
+	ch     chan Event    // never closed: Emit may run concurrently with or after Close
+	stop   chan struct{} // closed by Close
 	done   chan struct{}
 	once   sync.Once
+	closed atomic.Bool
 
 	dropped atomic.Uint64
 	failed  atomic.Uint64
@@ -44,6 +46,7 @@ func NewReporter(baseURL string, log *slog.Logger) *Reporter {
 		client:    &http.Client{Timeout: 5 * time.Second},
 		log:       log,
 		ch:        make(chan Event, 4096),
+		stop:      make(chan struct{}),
 		done:      make(chan struct{}),
 		BatchSize: 50,
 		Interval:  100 * time.Millisecond,
@@ -57,7 +60,7 @@ func NewReporter(baseURL string, log *slog.Logger) *Reporter {
 
 // Emit queues an event. ProducedTS is stamped here.
 func (r *Reporter) Emit(e Event) {
-	if r.url == "" {
+	if r.url == "" || r.closed.Load() {
 		return
 	}
 	if e.ProducedTS.IsZero() {
@@ -75,9 +78,13 @@ func (r *Reporter) Emit(e Event) {
 // Dropped is the number of events lost to a full buffer.
 func (r *Reporter) Dropped() uint64 { return r.dropped.Load() }
 
-// Close flushes queued events (up to 5 s) and stops the reporter.
+// Close flushes queued events (up to 5 s) and stops the reporter. Events
+// emitted afterwards are discarded.
 func (r *Reporter) Close() {
-	r.once.Do(func() { close(r.ch) })
+	r.once.Do(func() {
+		r.closed.Store(true)
+		close(r.stop)
+	})
 	select {
 	case <-r.done:
 	case <-time.After(5 * time.Second):
@@ -98,11 +105,21 @@ func (r *Reporter) loop() {
 	}
 	for {
 		select {
-		case e, ok := <-r.ch:
-			if !ok {
-				flush()
-				return
+		case <-r.stop:
+			// Drain what is queued, then send the rest and stop.
+			for {
+				select {
+				case e := <-r.ch:
+					batch = append(batch, e)
+					if len(batch) >= r.BatchSize {
+						flush()
+					}
+				default:
+					flush()
+					return
+				}
 			}
+		case e := <-r.ch:
 			batch = append(batch, e)
 			if len(batch) >= r.BatchSize {
 				flush()
