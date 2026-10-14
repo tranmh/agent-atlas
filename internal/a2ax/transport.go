@@ -1,7 +1,6 @@
 package a2ax
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
@@ -10,12 +9,12 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/tranmh/agent-atlas/internal/events"
 	"github.com/tranmh/agent-atlas/internal/script"
+	"github.com/tranmh/agent-atlas/internal/wire"
 )
 
 // Call describes who talks to whom; it stamps every reported event.
@@ -94,13 +93,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return t.cardFetch(req, corr)
 	}
 
-	var body []byte
-	if req.Body != nil {
-		body, _ = io.ReadAll(req.Body)
-		_ = req.Body.Close()
-		req.Body = io.NopCloser(bytes.NewReader(body))
-		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
-	}
+	body := wire.BufferRequest(req)
 	var env rpcEnvelope
 	_ = json.Unmarshal(body, &env)
 	var params struct {
@@ -142,8 +135,8 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return resp, nil
 	}
 
-	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
-		resp.Body = &sseTee{rc: resp.Body, t: t, corr: corr, method: env.Method, start: start, status: resp.StatusCode}
+	if wire.IsSSE(resp) {
+		resp.Body = t.streamTee(resp.Body, corr, env.Method, start, resp.StatusCode)
 		return resp, nil
 	}
 
@@ -270,102 +263,28 @@ func pickHeaders(h http.Header) map[string]string {
 	return out
 }
 
-// sseTee reports every SSE frame of a streaming response while the a2a client
-// reads it, and the end of the stream when the body is exhausted or closed.
-type sseTee struct {
-	rc     io.ReadCloser
-	t      *Transport
-	corr   string
-	method string
-	start  time.Time
-	status int
-
-	mu     sync.Mutex
-	buf    bytes.Buffer
-	frames int
-	done   bool
-}
-
-func (s *sseTee) Read(p []byte) (int, error) {
-	n, err := s.rc.Read(p)
-	if n > 0 {
-		s.mu.Lock()
-		s.buf.Write(p[:n])
-		s.drain()
-		s.mu.Unlock()
-	}
-	if err == io.EOF {
-		s.finish("")
-	} else if err != nil {
-		s.finish(err.Error())
-	}
-	return n, err
-}
-
-func (s *sseTee) Close() error {
-	s.finish("")
-	return s.rc.Close()
-}
-
-// drain emits complete frames (terminated by a blank line) from the buffer.
-func (s *sseTee) drain() {
-	for {
-		data := s.buf.Bytes()
-		idx := bytes.Index(data, []byte("\n\n"))
-		if idx < 0 {
-			return
+// streamTee reports every SSE frame of a streaming response while the a2a
+// client reads it, and the end of the stream when the body is exhausted or closed.
+func (t *Transport) streamTee(rc io.ReadCloser, corr, method string, start time.Time, status int) io.ReadCloser {
+	frames := 0
+	return wire.NewSSETee(rc, func(raw []byte) {
+		frames++
+		var env rpcEnvelope
+		_ = json.Unmarshal(raw, &env)
+		info := ExtractTaskInfo(env.Result)
+		e := t.event(events.KindStreamEvent, t.Call.Agent, t.Call.Caller)
+		e.Method, e.Corr, e.TaskID, e.ContextID, e.StateTo = method, corr, info.TaskID, info.ContextID, info.State
+		e.DurationMS = time.Since(start).Milliseconds()
+		e.Note = fmt.Sprintf("SSE frame %d from %s: %s", frames, t.Call.Agent, describeInfo(info))
+		t.Emit.Emit(*e.WithPayload(raw, t.PayloadLimit))
+		t.trackState(info, corr)
+	}, func(n int, err error) {
+		e := t.event(events.KindRPCResponse, t.Call.Agent, t.Call.Caller)
+		e.Method, e.Corr, e.HTTPStatus, e.DurationMS = method, corr, status, time.Since(start).Milliseconds()
+		e.Note = fmt.Sprintf("%s ← %s: stream closed after %d frames", t.Call.Caller, t.Call.Agent, n)
+		if err != nil {
+			e.Note += " (" + err.Error() + ")"
 		}
-		frame := string(data[:idx])
-		s.buf.Next(idx + 2)
-		s.emitFrame(frame)
-	}
-}
-
-func (s *sseTee) emitFrame(frame string) {
-	var payload strings.Builder
-	sc := bufio.NewScanner(strings.NewReader(frame))
-	for sc.Scan() {
-		line := sc.Text()
-		if strings.HasPrefix(line, "data:") {
-			payload.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
-		}
-	}
-	if payload.Len() == 0 {
-		return
-	}
-	s.frames++
-	raw := []byte(payload.String())
-	var env rpcEnvelope
-	_ = json.Unmarshal(raw, &env)
-	info := ExtractTaskInfo(env.Result)
-	t := s.t
-	e := t.event(events.KindStreamEvent, t.Call.Agent, t.Call.Caller)
-	e.Method, e.Corr, e.TaskID, e.ContextID, e.StateTo = s.method, s.corr, info.TaskID, info.ContextID, info.State
-	e.DurationMS = time.Since(s.start).Milliseconds()
-	e.Note = fmt.Sprintf("SSE frame %d from %s: %s", s.frames, t.Call.Agent, describeInfo(info))
-	t.Emit.Emit(*e.WithPayload(raw, t.PayloadLimit))
-	t.trackState(info, s.corr)
-}
-
-func (s *sseTee) finish(errText string) {
-	s.mu.Lock()
-	if s.done {
-		s.mu.Unlock()
-		return
-	}
-	s.done = true
-	if s.buf.Len() > 0 {
-		s.buf.WriteString("\n\n")
-		s.drain()
-	}
-	frames := s.frames
-	s.mu.Unlock()
-	t := s.t
-	e := t.event(events.KindRPCResponse, t.Call.Agent, t.Call.Caller)
-	e.Method, e.Corr, e.HTTPStatus, e.DurationMS = s.method, s.corr, s.status, time.Since(s.start).Milliseconds()
-	e.Note = fmt.Sprintf("%s ← %s: stream closed after %d frames", t.Call.Caller, t.Call.Agent, frames)
-	if errText != "" {
-		e.Note += " (" + errText + ")"
-	}
-	t.Emit.Emit(e)
+		t.Emit.Emit(e)
+	})
 }

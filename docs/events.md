@@ -44,4 +44,10 @@ objects over SSE (`GET /api/events/stream`, event name `atlas`, id `<session>/<n
 | `artifact` | agent | agent | The agent produced an artifact. |
 | `fault_injected` | agent | agent | Chaos: the agent answered 503 to the first attempt; the gateway retries. |
 | `llm_request`, `llm_response`, `llm_unavailable` | agent | agent ↔ llm | The LLM step through the gateway's LLM route, or the scripted fallback. |
+| `mcp_request` | agent | agent → MCP server (or `agentgateway` for the session handshake and lists) | A JSON-RPC request to the scenario's MCP route `/mcp/<code>`: `server/discover`, `initialize`, `tools/list`, `tools/call`, `resources/read`, `prompts/get`. |
+| `mcp_response` | agent | MCP server → agent | The JSON-RPC result (JSON body or the result frame of the SSE stream). |
+| `mcp_progress` | agent | MCP server → agent | A `notifications/progress` frame of a slow tool, inside the call's SSE stream. |
+| `mcp_denied` | agent | agentgateway → agent | The gateway refused an MCP call: HTTP 400 "Unknown tool" for write tools (hidden by the MCP policy), 403 for callers from another scenario. |
+| `mcp_server_call` | agent (MCP server) | agent → MCP server | A `tools/call`, `resources/read` or `prompts/get` as it arrived at the MCP server behind the gateway. |
+| `llm_tool_choice` | agent | llm → agent | The model asked for a tool call (name and arguments); the agent runs it over MCP. |
 | `gateway_access` | gateway | caller → route | One gateway access-log record (OTLP): method, status, duration, task state, `retry.attempt`, `trace.id`. |

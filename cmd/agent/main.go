@@ -20,6 +20,7 @@ import (
 	"github.com/tranmh/agent-atlas/internal/events"
 	"github.com/tranmh/agent-atlas/internal/httpx"
 	"github.com/tranmh/agent-atlas/internal/llm"
+	"github.com/tranmh/agent-atlas/internal/mcpx"
 	"github.com/tranmh/agent-atlas/internal/scenario"
 	"github.com/tranmh/agent-atlas/internal/script"
 )
@@ -73,6 +74,11 @@ func main() {
 		PublicURL:        httpx.GetEnv("AGENT_PUBLIC_URL", fmt.Sprintf("http://%s:%d", id, port)),
 		Emit:             reporter,
 		LLM:              chatter,
+		MCP: &mcpx.Client{
+			GatewayURL:   httpx.GetEnv("MCP_GATEWAY_URL", "http://agentgateway:3000"),
+			Emit:         reporter,
+			PayloadLimit: limit,
+		},
 		DefaultSpeed:     speed,
 		PayloadLimit:     limit,
 		Log:              log,

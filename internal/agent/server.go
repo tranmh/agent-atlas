@@ -20,6 +20,7 @@ import (
 
 	"github.com/tranmh/agent-atlas/internal/events"
 	"github.com/tranmh/agent-atlas/internal/httpx"
+	"github.com/tranmh/agent-atlas/internal/mcpx"
 	"github.com/tranmh/agent-atlas/internal/scenario"
 	"github.com/tranmh/agent-atlas/internal/script"
 )
@@ -37,6 +38,7 @@ type Config struct {
 	PublicURL    string // base URL the agent advertises, e.g. http://sc-diagnosis:8080
 	Emit         events.Emitter
 	LLM          script.Chatter
+	MCP          *mcpx.Client // nil: MCP steps are skipped with a note
 	DefaultSpeed float64
 	PayloadLimit int
 	Log          *slog.Logger
@@ -80,6 +82,7 @@ func NewHandler(cfg Config) http.Handler {
 		Agent:        cfg.Agent,
 		Emit:         cfg.Emit,
 		LLM:          cfg.LLM,
+		MCP:          cfg.MCP,
 		DefaultSpeed: cfg.DefaultSpeed,
 		PayloadLimit: cfg.PayloadLimit,
 	}

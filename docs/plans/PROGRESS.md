@@ -19,8 +19,8 @@ MCP extension, plan: [2026-10-14-mcp-plan.md](2026-10-14-mcp-plan.md).
 | # | Milestone | Status | Commit |
 |---|---|---|---|
 | M9 | Spike: MCP route, multiplexing, progress, authorization through agentgateway | done | 2ebf2ec |
-| M10 | Scenario schema for MCP servers, `cmd/mcpserver`, generated routes and compose | done | (this commit) |
-| M11 | Shared wire capture, MCP client, scripted tool/resource steps, events | open | |
+| M10 | Scenario schema for MCP servers, `cmd/mcpserver`, generated routes and compose | done | df10288 |
+| M11 | Shared wire capture, MCP client, scripted tool/resource steps, events | done | (this commit) |
 | M12 | LLM tool loop over MCP (prompts/get, tools/list, tool_calls) | open | |
 | M13 | Visualizer MCP decoding, UI hexagons, MCP flights, panels | open | |
 | M14 | e2e, screenshots, sample, docs | open | |
