@@ -111,3 +111,20 @@ llm-check: ## One chat completion through the gateway's LLM route
 	@curl -sf localhost:$(GATEWAY_LLM_HOST_PORT)/v1/chat/completions -H 'content-type: application/json' -H 'x-caller: make-llm-check' \
 		-d '{"model":"$(LLM_MODEL)","max_tokens":80,"reasoning_effort":"none","messages":[{"role":"user","content":"Say hello in five words."}]}' \
 		| jq -r '"\(.model): \(.choices[0].message.content) (\(.usage.completion_tokens) tokens)"'
+
+PW_IMAGE ?= mcr.microsoft.com/playwright:v1.56.1-noble
+
+.PHONY: e2e
+e2e: ## Playwright e2e (api + ui) against the running stack (make up first)
+	cd e2e && npm ci && \
+	  { npx playwright install chromium 2>/dev/null || PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 npx playwright install chromium; } && \
+	  npx playwright test --project=api --project=ui
+
+.PHONY: e2e-docker
+e2e-docker: ## Run the e2e suite inside the Playwright image (host network)
+	docker run --rm --network host --ipc host -u $$(id -u):$$(id -g) -e HOME=/tmp \
+	  -v '$(CURDIR)/e2e:/e2e' -w /e2e $(PW_IMAGE) sh -c 'npm ci && npx playwright test --project=api --project=ui'
+
+.PHONY: screenshots
+screenshots: ## Regenerate docs/screenshots/*.png from the running stack (~2 min)
+	cd e2e && npx playwright test --project=screenshots

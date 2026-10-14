@@ -4,7 +4,7 @@
   "private": true,
   "description": "Playwright e2e suite for agent-atlas (runs against the docker-compose stack).",
   "scripts": {
-    "test": "playwright test",
+    "test": "playwright test --project=api --project=ui",
     "test:api": "playwright test --project=api",
     "test:ui": "playwright test --project=ui",
     "typecheck": "tsc --noEmit",

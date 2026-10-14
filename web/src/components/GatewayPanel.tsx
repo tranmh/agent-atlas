@@ -48,9 +48,9 @@ export function GatewayPanel({ events, scenarios, onSelect }: { events: readonly
                 <td>
                   <ScenarioBadge code={e.scenario} scenarios={scenarios} />
                 </td>
-                <td className="max-w-[9rem] truncate font-mono" title={e.method}>
-                  {e.method}
-                  {retry > 0 ? <span className="ml-1 rounded bg-serious px-1 text-[10px] text-black">retry ×{retry}</span> : null}
+                <td className="max-w-[9rem] font-mono" title={e.method}>
+                  <span className="block truncate">{e.method}</span>
+                  {retry > 0 ? <span className="rounded bg-serious px-1 font-sans text-[10px] text-black">↻ retried ×{retry}</span> : null}
                 </td>
                 <td className="max-w-[7rem] truncate">{e.to}</td>
                 <td className={`text-right font-mono ${e.http_status && e.http_status >= 400 ? "font-bold text-critical" : ""}`}>{e.http_status}</td>

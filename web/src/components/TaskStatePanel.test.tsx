@@ -1,11 +1,18 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { border, TaskStatePanel } from "./TaskStatePanel";
+import { border, path, TaskStatePanel } from "./TaskStatePanel";
 
 describe("TaskStatePanel", () => {
   it("clips edges at the pill border", () => {
     expect(border({ x: 0, y: 0 }, { x: 100, y: 0 }).x).toBeCloseTo(49);
     expect(border({ x: 0, y: 0 }, { x: 0, y: 100 }).y).toBeCloseTo(16);
+  });
+
+  it("infers working between input-required and completed", () => {
+    const p = path(["input-required", "completed"]);
+    expect([...p.inferred]).toEqual(["working"]);
+    expect([...p.taken].sort()).toEqual(["input-required>working", "working>completed"]);
+    expect(path(["submitted", "working", "completed"]).inferred.size).toBe(0);
   });
 
   it("marks the current state and lists the history", () => {

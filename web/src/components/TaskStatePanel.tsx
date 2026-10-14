@@ -41,6 +41,30 @@ export function border(from: { x: number; y: number }, to: { x: number; y: numbe
   return { x: from.x + dx * (k + gap), y: from.y + dy * (k + gap) };
 }
 
+const EDGE_SET = new Set(EDGES.map(([a, b]) => `${a}>${b}`));
+
+/**
+ * The path a task took. A blocking client only sees some states (for example
+ * input-required, then completed); a missing step through "working" is
+ * marked as inferred.
+ */
+export function path(states: string[]): { visited: Set<string>; inferred: Set<string>; taken: Set<string> } {
+  const visited = new Set(states);
+  const inferred = new Set<string>();
+  const taken = new Set<string>();
+  for (let i = 1; i < states.length; i++) {
+    const a = states[i - 1];
+    const b = states[i];
+    if (EDGE_SET.has(`${a}>${b}`)) taken.add(`${a}>${b}`);
+    else if (EDGE_SET.has(`${a}>working`) && EDGE_SET.has(`working>${b}`)) {
+      taken.add(`${a}>working`);
+      taken.add(`working>${b}`);
+      if (!visited.has("working")) inferred.add("working");
+    }
+  }
+  return { visited, inferred, taken };
+}
+
 /** The A2A task state machine with the path this task took. */
 export function TaskStatePanel({ task, scenarios, onEvent }: { task: TaskView | null; scenarios: Scenario[]; onEvent: (id: number) => void }) {
   if (!task) {
@@ -50,10 +74,7 @@ export function TaskStatePanel({ task, scenarios, onEvent }: { task: TaskView | 
       </p>
     );
   }
-  const states = task.history.filter((h) => !h.state.startsWith("note:")).map((h) => h.state);
-  const visited = new Set(states);
-  const taken = new Set<string>();
-  for (let i = 1; i < states.length; i++) taken.add(`${states[i - 1]}>${states[i]}`);
+  const { visited, inferred, taken } = path(task.history.filter((h) => !h.state.startsWith("note:")).map((h) => h.state));
   const start = task.history[0]?.t ?? 0;
   return (
     <div className="space-y-3 p-3" data-testid="task-panel">
@@ -103,8 +124,9 @@ export function TaskStatePanel({ task, scenarios, onEvent }: { task: TaskView | 
                 height={26}
                 rx={13}
                 fill={visited.has(name) ? look.color : "var(--surface-2)"}
-                stroke={current ? "var(--text-primary)" : "var(--border)"}
-                strokeWidth={current ? 3 : 1}
+                stroke={current ? "var(--text-primary)" : inferred.has(name) ? look.color : "var(--border)"}
+                strokeWidth={current ? 3 : inferred.has(name) ? 2 : 1}
+                strokeDasharray={inferred.has(name) ? "4 3" : undefined}
               />
               <text x={46} y={17} textAnchor="middle" fontSize="11" fontWeight={current ? 700 : 500} fill={visited.has(name) && name !== "input-required" ? "#fff" : "var(--text-primary)"}>
                 {look.glyph} {name}
@@ -113,6 +135,9 @@ export function TaskStatePanel({ task, scenarios, onEvent }: { task: TaskView | 
           );
         })}
       </svg>
+      {inferred.size > 0 ? (
+        <p className="text-xs text-ink-2">Dashed: not seen by this client (a blocking call only returns the end state), but the task must have passed through it.</p>
+      ) : null}
       <ol className="space-y-1 text-xs">
         {task.history.map((h, i) => {
           const note = h.state.startsWith("note:");

@@ -10,8 +10,8 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
 | M3 | orchestrator, event log, visualizer SSE | done | c41c3ec |
 | M4 | map, arcs, panels, replay | done | 6db95b6 |
 | M5 | gateway policies, Jaeger, gateway view | done | 3dc6cd9 |
-| M6 | Ollama + LLM agents through the gateway | done | (this commit) |
-| M7 | all scenarios, e2e, screenshots, README | open | |
+| M6 | Ollama + LLM agents through the gateway | done | 3b5d777 |
+| M7 | all scenarios, e2e, screenshots, README | done | (this commit) |
 | M8 | Fable code review; critical/high findings fixed test-first (red commit, then green commit) | open | |
 
 ## Deviations from the plan
@@ -59,6 +59,12 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
   service bound to the Docker bridge (172.17.0.1), so it is not exposed on the LAN. Details and the
   CPU-vs-iGPU measurement are in `docs/ollama.md` (CPU wins: 26.3 vs 22.4 tokens/s).
 - `/no_think` does not work on Ollama 0.40's OpenAI endpoint; the client sends `reasoning_effort: none`.
+
+- e2e: 7 API + 7 UI Playwright tests (14 passed, ~1.6 min) against the running stack; a separate
+  `screenshots` project writes `docs/screenshots/`. The screenshot script failed once on a first attempt
+  (artefacts were overwritten by the passing second run), so it may be flaky.
+- The task panel marks states a blocking client never saw (input-required → completed implies working)
+  as inferred, drawn dashed.
 
 ## Verified facts (M1 spike, agentgateway v1.6.0 + a2a-go v2.6.0)
 
