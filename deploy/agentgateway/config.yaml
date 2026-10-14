@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+# M1 hand-written config: one A2A route for the hello agent.
+config:
+  adminAddr: 0.0.0.0:15000
+  logging:
+    format: json
+frontendPolicies:
+  tracing:
+    host: jaeger:4317
+    randomSampling: true
+  accessLog:
+    add:
+      run_id: 'request.headers["x-run-id"]'
+      caller: 'request.headers["x-caller"]'
+gateways:
+  default:
+    port: 3000
+routes:
+- name: hello
+  matches:
+  - path:
+      pathPrefix: /agents/hello
+  policies:
+    urlRewrite:
+      path:
+        prefix: /
+    cors:
+      allowOrigins: ['*']
+      allowHeaders: [content-type, cache-control]
+    a2a: {}
+  backends:
+  - host: hello:8080

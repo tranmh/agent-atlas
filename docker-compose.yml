@@ -1,0 +1,50 @@
+# agent-atlas: A2A agents on a world map behind agentgateway.
+# `make up` (= docker compose up -d --build --wait). Settings come from .env.
+# Container ports are fixed; only the HOST side is configurable (*_HOST_PORT).
+name: agent-atlas
+
+x-go-service: &go-service
+  restart: on-failure
+  build: &go-build
+    context: .
+    dockerfile: build/go.Dockerfile
+
+services:
+  agentgateway:
+    image: cr.agentgateway.dev/agentgateway:v1.6.0
+    command: ["-f", "/config.yaml"]
+    restart: on-failure
+    volumes:
+      - ./deploy/agentgateway/config.yaml:/config.yaml:ro
+    ports:
+      - "${GATEWAY_HOST_PORT:-8000}:3000"
+      - "${GATEWAY_LLM_HOST_PORT:-8100}:3100"
+      - "${GATEWAY_UI_HOST_PORT:-15000}:15000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      jaeger:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "${JAEGER_HOST_PORT:-16686}:16686"
+
+  hello:
+    <<: *go-service
+    build:
+      <<: *go-build
+      args:
+        SERVICE: agent
+    image: agent-atlas/agent:dev
+    environment:
+      AGENT_PUBLIC_URL: http://hello:8080
+    healthcheck:
+      test: ["CMD", "/app/agent", "--healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
