@@ -202,6 +202,21 @@ export function applyEvent(s: ViewState, e: AtlasEvent): void {
       tv.history.push({ state: e.state_to ?? "", t: e.t, note: e.note, eventId: e.id });
       break;
     }
+    case "mcp_server_call": {
+      const srv = agent(s, e.to);
+      if (srv) Object.assign(srv, { activeT: e.t, note: e.note, noteT: e.t });
+      break;
+    }
+    case "mcp_progress": {
+      const srv = agent(s, e.from);
+      if (srv) Object.assign(srv, { activeT: e.t, note: e.note, noteT: e.t });
+      break;
+    }
+    case "mcp_denied": {
+      const a = agent(s, e.to);
+      if (a) a.faultT = e.t;
+      break;
+    }
     case "gateway_access":
       s.gatewayT = e.t;
       if (e.to === "llm") s.llmT = e.t;

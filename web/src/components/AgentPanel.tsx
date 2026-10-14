@@ -6,6 +6,7 @@ import { fetchAgentCard } from "@/lib/api";
 import { STATUS_LOOK } from "@/map/colors";
 import type { AgentView } from "@/replay/reduce";
 import { JsonView } from "./JsonView";
+import { MCPServerPanel } from "./MCPServerPanel";
 import { ScenarioBadge } from "./ScenarioBadge";
 
 const FEATURE_TEXT: Record<string, string> = {
@@ -15,10 +16,23 @@ const FEATURE_TEXT: Record<string, string> = {
   restricted: "Sits behind a CEL authorization policy in the gateway: only its own orchestrator may call it, and never a restricted-* skill.",
 };
 
+/** How an agent's script uses MCP, in words. */
+function mcpUse(agent: Agent): string[] {
+  const out = new Set<string>();
+  for (const st of agent.script) {
+    if (st.tool) out.add(st.tool.expect === "denied" ? `tries the write tool ${st.tool.name} (refused by the gateway)` : `calls ${st.tool.name} on ${st.tool.server}`);
+    if (st.resource) out.add(`reads ${st.resource.uri}`);
+    if (st.tools) out.add(`lets the model pick tools from ${st.tools.join(" and ")}`);
+    if (st.prompt_from) out.add(`fetches its system prompt ${st.prompt_from.name} from ${st.prompt_from.server}`);
+  }
+  return [...out];
+}
+
 export function AgentPanel({ id, scenarios, view, live }: { id: string | null; scenarios: Scenario[]; view: AgentView | undefined; live: boolean }) {
   const [card, setCard] = useState<unknown>(null);
   const [cardError, setCardError] = useState<string | null>(null);
-  const scenario = scenarios.find((s) => s.orchestrator.id === id || s.agents.some((a) => a.id === id));
+  const scenario = scenarios.find((s) => s.orchestrator.id === id || s.agents.some((a) => a.id === id) || s.mcp_servers.some((m) => m.id === id));
+  const mcpServer = scenario?.mcp_servers.find((m) => m.id === id);
   const agent: Agent | undefined = scenario?.agents.find((a) => a.id === id);
   const place: Place | undefined = agent ?? (scenario?.orchestrator.id === id ? scenario?.orchestrator : undefined);
 
@@ -35,6 +49,7 @@ export function AgentPanel({ id, scenarios, view, live }: { id: string | null; s
     };
   }, [agent, live]);
 
+  if (scenario && mcpServer) return <MCPServerPanel server={mcpServer} scenario={scenario} scenarios={scenarios} view={view} />;
   if (!id || !scenario || !place) return <p className="p-4 text-sm text-ink-3">Click a pin on the map to see the agent, its role and its agent card.</p>;
   const look = STATUS_LOOK[view?.status ?? "idle"];
   return (
@@ -56,6 +71,11 @@ export function AgentPanel({ id, scenarios, view, live }: { id: string | null; s
           <p className="text-xs text-ink-2">
             <strong>Shows:</strong> {FEATURE_TEXT[agent.feature]} {agent.mode === "llm" ? "Its answer comes from a local LLM, called through the gateway's LLM route." : ""}
           </p>
+          {mcpUse(agent).length > 0 ? (
+            <p className="text-xs text-ink-2">
+              <strong>Uses MCP:</strong> {mcpUse(agent).join("; ")}.
+            </p>
+          ) : null}
           <ul className="text-xs">
             {agent.skills.map((sk) => (
               <li key={sk.id}>

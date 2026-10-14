@@ -25,6 +25,15 @@ const EXPLAIN: Record<string, string> = {
   llm_response: "The model's answer, returned through the gateway.",
   llm_unavailable: "The model could not be reached; the agent used its scripted answer instead. The A2A flow is unaffected.",
   breakpoint: "Breakpoint mode: the orchestrator asked the visualizer whether to continue and waits.",
+  mcp_request:
+    "MCP: an agent uses a tool, reads data or fetches a prompt. Unlike A2A (agent ↔ agent, tasks with a lifecycle), MCP is agent → tool: a function call answered at once. It goes to the scenario's MCP route on the gateway, which multiplexes two MCP servers into one: tool and prompt names get a server prefix, resource URIs a 'server+' prefix.",
+  mcp_response: "The MCP result. Tool calls through the gateway come back as an SSE stream: progress notifications first, then the result.",
+  mcp_progress: "A notifications/progress frame: the slow tool reports progress for the progress token the client sent with its call.",
+  mcp_denied:
+    "The gateway's MCP authorization policy (CEL on mcp.tool.name) hides write tools from tools/list and refuses calls to them with 400 'Unknown tool'. The call never reaches the MCP server. A caller from another scenario gets 403 on the whole route.",
+  mcp_server_call: "The MCP server received the call behind the gateway. Note the forwarded X-Caller and the unprefixed tool name.",
+  llm_tool_choice:
+    "The model (qwen3 through the gateway's LLM route) was offered the MCP tools as OpenAI functions and asked for this call. The agent runs it over MCP and sends the result back to the model.",
 };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

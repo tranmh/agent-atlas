@@ -37,7 +37,7 @@ export function AtlasApp() {
 
   const [solo, setSolo] = useState<string | null>(null);
   const [muted, setMuted] = useState<Set<string>>(new Set());
-  const [groups, setGroups] = useState<Set<KindGroup>>(new Set<KindGroup>(["story", "wire", "agent"]));
+  const [groups, setGroups] = useState<Set<KindGroup>>(new Set<KindGroup>(["story", "wire", "mcp", "agent"]));
   const [selected, setSelected] = useState<AtlasEvent | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [agentId, setAgentId] = useState<string | null>(null);

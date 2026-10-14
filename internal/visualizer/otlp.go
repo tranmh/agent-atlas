@@ -117,7 +117,24 @@ func AccessEvent(attrs map[string]any, limit int) (events.Event, bool) {
 		StateTo:    events.ShortState(str("a2a.task.state")),
 		DurationMS: parseDurationMS(str("duration")),
 	}
-	if model := str("gen_ai.request.model"); model != "" || strings.HasPrefix(path, "/v1/") {
+	if m := str("mcp.method.name"); m != "" || strings.HasSuffix(route, "-mcp") {
+		// MCP route of a scenario: name the server (multiplex target) and the tool.
+		e.Method = "MCP " + firstNonEmpty(m, method)
+		if tool := str("mcp_tool"); tool != "" {
+			e.Method += " " + tool
+		} else if uri := str("mcp.resource.uri"); uri != "" {
+			e.Method += " " + uri
+		}
+		e.To = "agentgateway"
+		if t := str("mcp.target"); t != "" && len(route) > 3 {
+			e.To = route[:3] + t // "sc-mcp" + target "erp" -> "sc-erp"
+		}
+		if status == 400 && str("reason") == "MCP" {
+			e.Note = fmt.Sprintf("agentgateway: MCP policy refused %s for %s (400 Unknown tool)", str("mcp_tool"), caller)
+			e.WithValue(attrs, limit)
+			return e, true
+		}
+	} else if model := str("gen_ai.request.model"); model != "" || strings.HasPrefix(path, "/v1/") {
 		e.To = "llm"
 		e.Method = "POST " + path
 		if model != "" {

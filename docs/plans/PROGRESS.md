@@ -21,8 +21,8 @@ MCP extension, plan: [2026-10-14-mcp-plan.md](2026-10-14-mcp-plan.md).
 | M9 | Spike: MCP route, multiplexing, progress, authorization through agentgateway | done | 2ebf2ec |
 | M10 | Scenario schema for MCP servers, `cmd/mcpserver`, generated routes and compose | done | df10288 |
 | M11 | Shared wire capture, MCP client, scripted tool/resource steps, events | done | 04a6c7d |
-| M12 | LLM tool loop over MCP (prompts/get, tools/list, tool_calls) | done | (this commit) |
-| M13 | Visualizer MCP decoding, UI hexagons, MCP flights, panels | open | |
+| M12 | LLM tool loop over MCP (prompts/get, tools/list, tool_calls) | done | 24f1f0e |
+| M13 | Visualizer MCP decoding, UI hexagons, MCP flights, panels | done | (this commit) |
 | M14 | e2e, screenshots, sample, docs | open | |
 | M15 | Fable code review of the MCP changes, TDD fixes | open | |
 
@@ -132,6 +132,14 @@ Two Go MCP servers (Streamable HTTP, stateful) behind one route with `backends: 
 - Even so, 4 of 5 scenarios first answer from memory. One nudge ("Call the tool now. Do not answer yet.")
   made 10/10 runs call a fitting tool and ground the answer in its result. The nudge is visible in the UI.
 - At most two tool calls per round, two rounds, then a forced answer; anything else falls back to the script.
+
+## M13 notes (UI)
+
+- MCP servers are hexagon pins; MCP flights use a dash-dot line with a diamond head (A2A heads are round);
+  the session handshake and lists are drawn faint, only to the gateway hub; progress frames are small dots.
+- Pins are decluttered in pixel space on every zoom with a deterministic repulsion layout (push apart,
+  pull back towards the true position). It replaces the "same city" offsets and keeps 35 pins readable at
+  world zoom without moving them far from their places.
 
 ## Notes for resuming
 

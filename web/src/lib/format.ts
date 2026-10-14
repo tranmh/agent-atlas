@@ -1,6 +1,6 @@
 import type { AtlasEvent } from "@/events/schema";
 
-export type KindGroup = "story" | "wire" | "agent" | "gateway";
+export type KindGroup = "story" | "wire" | "mcp" | "agent" | "gateway";
 
 export interface KindInfo {
   label: string;
@@ -30,12 +30,19 @@ export const KIND_INFO: Record<string, KindInfo> = {
   llm_request: { label: "LLM prompt", group: "agent", icon: "✎" },
   llm_response: { label: "LLM answer", group: "agent", icon: "✎" },
   llm_unavailable: { label: "LLM down", group: "agent", icon: "✎" },
+  mcp_request: { label: "MCP request", group: "mcp", icon: "⚒" },
+  mcp_response: { label: "MCP result", group: "mcp", icon: "⚒" },
+  mcp_progress: { label: "MCP progress", group: "mcp", icon: "⋯" },
+  mcp_denied: { label: "MCP denied", group: "mcp", icon: "⛔" },
+  mcp_server_call: { label: "tool server", group: "mcp", icon: "⬡" },
+  llm_tool_choice: { label: "model picks tool", group: "mcp", icon: "✎" },
   gateway_access: { label: "gateway log", group: "gateway", icon: "⛩" },
 };
 
 export const GROUP_LABEL: Record<KindGroup, string> = {
   story: "Story",
-  wire: "Protocol",
+  wire: "A2A",
+  mcp: "MCP",
   agent: "Agents",
   gateway: "Gateway",
 };

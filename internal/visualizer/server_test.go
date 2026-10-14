@@ -199,3 +199,34 @@ func TestOTLPAccessLogBecomesGatewayEvent(t *testing.T) {
 	require.Equal(t, int64(1004), e.DurationMS)
 	require.Equal(t, "sc-1", e.RunID)
 }
+
+func TestOTLPMCPAccessLogNamesServerAndTool(t *testing.T) {
+	s, srv := newServer(t, nil)
+	kv := func(k, v string) *common.KeyValue {
+		return &common.KeyValue{Key: k, Value: &common.AnyValue{Value: &common.AnyValue_StringValue{StringValue: v}}}
+	}
+	status := func(n int64) *common.KeyValue {
+		return &common.KeyValue{Key: "http.status", Value: &common.AnyValue{Value: &common.AnyValue_IntValue{IntValue: n}}}
+	}
+	req := &collogs.ExportLogsServiceRequest{ResourceLogs: []*logs.ResourceLogs{{ScopeLogs: []*logs.ScopeLogs{{LogRecords: []*logs.LogRecord{
+		{Attributes: []*common.KeyValue{kv("route", "default/sc-mcp"), kv("http.method", "POST"), kv("http.path", "/mcp/sc"), status(200),
+			kv("mcp.method.name", "tools/call"), kv("mcp.target", "erp"), kv("mcp_tool", "quote_freight"), kv("caller", "sc-logistics"), kv("duration", "6012ms")}},
+		{Attributes: []*common.KeyValue{kv("route", "default/sc-mcp"), kv("http.method", "POST"), kv("http.path", "/mcp/sc"), status(400),
+			kv("mcp.method.name", "tools/call"), kv("mcp.target", "erp"), kv("mcp_tool", "restricted_shutdown_turbine"), kv("reason", "MCP"), kv("caller", "sc-field-service")}},
+		{Attributes: []*common.KeyValue{kv("route", "default/sc-mcp"), kv("http.method", "POST"), kv("http.path", "/mcp/sc"), status(200),
+			kv("mcp.method.name", "initialize"), kv("caller", "sc-logistics")}},
+	}}}}}}
+	b, err := proto.Marshal(req)
+	require.NoError(t, err)
+	resp, err := http.Post(srv.URL+"/otlp/v1/logs", "application/x-protobuf", bytes.NewReader(b))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	evs := s.cfg.Store.After(0)
+	require.Len(t, evs, 3)
+	require.Equal(t, "sc-erp", evs[0].To)
+	require.Equal(t, "MCP tools/call quote_freight", evs[0].Method)
+	require.Equal(t, int64(6012), evs[0].DurationMS)
+	require.Contains(t, evs[1].Note, "MCP policy refused restricted_shutdown_turbine")
+	require.Equal(t, "agentgateway", evs[2].To)
+	require.Equal(t, "sc", evs[2].Scenario)
+}

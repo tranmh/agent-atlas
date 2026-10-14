@@ -11,8 +11,11 @@ const scenario: Scenario = {
   color: "#2a78d6",
   closing: "",
   orchestrator: { id: "sc-orchestrator", name: "Service Desk", description: "", city: "Göppingen", country: "DE", lat: 48.7, lon: 9.65 },
-  agents: [{ id: "sc-diagnosis", name: "Diagnosis", description: "", city: "Göppingen", country: "DE", lat: 48.7, lon: 9.65, feature: "streaming", mode: "llm", skills: [] }],
+  agents: [{ id: "sc-diagnosis", name: "Diagnosis", description: "", city: "Göppingen", country: "DE", lat: 48.7, lon: 9.65, feature: "streaming", mode: "llm", skills: [], script: [] }],
   plan: [],
+  mcp_servers: [
+    { id: "sc-erp", name: "ERP", description: "", city: "São Paulo", country: "BR", lat: -23.55, lon: -46.63, role: "ops", tools: [], resources: [], prompts: [] },
+  ],
 };
 
 function mountMap(): { m: AtlasMap; el: HTMLDivElement } {
@@ -25,10 +28,11 @@ function mountMap(): { m: AtlasMap; el: HTMLDivElement } {
 }
 
 describe("AtlasMap", () => {
-  it("creates one pin per orchestrator and agent", () => {
+  it("creates one pin per orchestrator, agent and MCP server", () => {
     const { m, el } = mountMap();
     m.setScenarios([scenario]);
-    expect(el.querySelectorAll(".atlas-pin")).toHaveLength(2);
+    expect(el.querySelectorAll(".atlas-pin")).toHaveLength(3);
+    expect(el.querySelectorAll(".atlas-pin--mcp")).toHaveLength(1);
     m.destroy();
   });
 

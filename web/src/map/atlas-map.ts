@@ -13,12 +13,12 @@
  * Push notifications bypass it (agent → orchestrator directly).
  */
 import L from "./leaflet-setup";
-import type { AtlasEvent, Scenario } from "@/events/schema";
+import type { AtlasEvent, Place, Scenario } from "@/events/schema";
 import type { Flight } from "@/replay/flights";
 import { HUB, LLM } from "@/replay/flights";
 import type { AgentView, ViewState } from "@/replay/reduce";
 import { STATUS, STATUS_LOOK, SURFACE, withAlpha } from "./colors";
-import { bezierAt, colocatedOffsets, controlPoint, distToSegment, legPosition, type Pt } from "./geo";
+import { bezierAt, controlPoint, declutterOffsets, distToSegment, legPosition, type Pt } from "./geo";
 import { escapeHtml } from "./html";
 
 export interface AtlasMapOptions {
@@ -40,7 +40,7 @@ interface Node {
   id: string;
   scenario: string;
   color: string;
-  role: "orchestrator" | "agent";
+  role: "orchestrator" | "agent" | "mcp";
   name: string;
   city: string;
   lat: number;
@@ -48,6 +48,7 @@ interface Node {
   offset: Pt;
   marker: L.Marker;
   lastClass?: string;
+  status: string;
 }
 
 type Events = {
@@ -119,6 +120,7 @@ export class AtlasMap {
       this.zooming = false;
       canvas.style.visibility = "";
       el.classList.toggle("atlas-map--labels", map.getZoom() >= 5.5);
+      this.layout();
     });
     if (typeof ResizeObserver !== "undefined") {
       this.resize = new ResizeObserver(() => map.invalidateSize());
@@ -164,19 +166,15 @@ export class AtlasMap {
     for (const n of this.nodes.values()) n.marker.remove();
     this.nodes.clear();
     this.colors.clear();
-    const all: { id: string; lat: number; lon: number }[] = [];
-    for (const s of scenarios) {
-      this.colors.set(s.code, s.color);
-      all.push(s.orchestrator, ...s.agents);
-    }
-    const offsets = colocatedOffsets(all);
+    for (const s of scenarios) this.colors.set(s.code, s.color);
     for (const s of scenarios) {
       const places = [
         { p: s.orchestrator, role: "orchestrator" as const },
         ...s.agents.map((a) => ({ p: a, role: "agent" as const })),
+        ...(s.mcp_servers ?? []).map((m) => ({ p: m as Place, role: "mcp" as const })),
       ];
       for (const { p, role } of places) {
-        const offset = offsets.get(p.id) ?? { x: 0, y: 0 };
+        const offset = { x: 0, y: 0 };
         const marker = L.marker([p.lat, p.lon], {
           icon: this.icon(s.code, s.color, role, p.name, "idle", offset),
           keyboard: true,
@@ -185,15 +183,16 @@ export class AtlasMap {
         });
         marker.on("click", () => this.emit("agent", p.id));
         marker.addTo(map);
-        this.nodes.set(p.id, { id: p.id, scenario: s.code, color: s.color, role, name: p.name, city: p.city, lat: p.lat, lon: p.lon, offset, marker });
+        this.nodes.set(p.id, { id: p.id, scenario: s.code, color: s.color, role, name: p.name, city: p.city, lat: p.lat, lon: p.lon, offset, marker, status: "idle" });
       }
     }
+    this.layout();
     if (this.lastView) this.setView(this.lastView);
   }
 
   private icon(code: string, color: string, role: string, name: string, status: string, offset: Pt): L.DivIcon {
     const look = STATUS_LOOK[status as AgentView["status"]] ?? STATUS_LOOK.idle;
-    const size = role === "orchestrator" ? 30 : 24;
+    const size = role === "orchestrator" ? 30 : role === "mcp" ? 22 : 24;
     // Labels of co-located pins point away from the group centre.
     const dir = offset.x === 0 && offset.y === 0 ? "down" : Math.abs(offset.x) > Math.abs(offset.y) ? (offset.x > 0 ? "right" : "left") : offset.y > 0 ? "down" : "up";
     return L.divIcon({
@@ -202,7 +201,8 @@ export class AtlasMap {
       iconAnchor: [size / 2 - offset.x, size / 2 - offset.y],
       html:
         `<div class="atlas-pin atlas-pin--${role} atlas-pin--${status}" style="--c:${color};--s:${look.color}" data-agent="${escapeHtml(name)}" data-label="${dir}">` +
-        `<span class="atlas-pin__code">${escapeHtml(code.toUpperCase())}</span>` +
+        (role === "mcp" ? `<span class="atlas-pin__hex" aria-hidden="true"></span>` : "") +
+        `<span class="atlas-pin__code">${role === "mcp" ? "⚒" : escapeHtml(code.toUpperCase())}</span>` +
         (look.glyph ? `<span class="atlas-pin__badge" aria-label="${escapeHtml(look.label)}">${escapeHtml(look.glyph)}</span>` : "") +
         `<span class="atlas-pin__label">${escapeHtml(name)}</span>` +
         `</div>`,
@@ -225,9 +225,28 @@ export class AtlasMap {
       const status = a?.status ?? "idle";
       if (n.lastClass === status) continue;
       n.lastClass = status;
+      n.status = status;
       n.marker.setIcon(this.icon(n.scenario, n.color, n.role, n.name, status, n.offset));
       const look = STATUS_LOOK[status];
       n.marker.options.title = `${n.name} (${n.city}): ${look.label}`;
+    }
+  }
+
+  /** Spread pins that would overlap at the current zoom (recomputed on every zoom). */
+  private layout(): void {
+    const map = this.map;
+    if (!map || this.nodes.size === 0) return;
+    const zoom = map.getZoom();
+    const pts = [...this.nodes.values()].map((n) => {
+      const p = map.project([n.lat, n.lon], zoom);
+      return { id: n.id, x: p.x, y: p.y };
+    });
+    const offsets = declutterOffsets(pts, 32);
+    for (const n of this.nodes.values()) {
+      const o = offsets.get(n.id) ?? { x: 0, y: 0 };
+      if (o.x === n.offset.x && o.y === n.offset.y) continue;
+      n.offset = o;
+      n.marker.setIcon(this.icon(n.scenario, n.color, n.role, n.name, n.status, n.offset));
     }
   }
 
@@ -317,7 +336,7 @@ export class AtlasMap {
       if (!a) continue;
       ctx.strokeStyle = withAlpha(this.colors.get(code) ?? "#888888", 0.35);
       for (const n of g) {
-        if (n === orch) continue;
+        if (n === orch || n.role === "mcp") continue;
         const b = this.pointOf(n.id);
         if (!b) continue;
         const c = controlPoint(a, b, 0.12);
@@ -431,9 +450,13 @@ export class AtlasMap {
       denied: [],
       fault: [3, 3],
       llm: [5, 3],
+      mcp: [9, 3, 2, 3],
+      "mcp-frame": [1, 3],
+      "mcp-handshake": [2, 4],
     };
     ctx.setLineDash(dash[f.style]);
-    ctx.lineWidth = f.style === "frame" || f.style === "card" ? 1.5 : f.style === "push" ? 3 : 2.25;
+    ctx.lineWidth = f.style === "frame" || f.style === "card" || f.style === "mcp-frame" ? 1.5 : f.style === "mcp-handshake" ? 1 : f.style === "push" ? 3 : 2.25;
+    if (f.style === "mcp-handshake") ctx.globalAlpha = f.alpha * 0.45;
     ctx.strokeStyle = withAlpha(color, 0.85);
     // Path drawn so far: whole earlier legs + the current leg up to t.
     ctx.beginPath();
@@ -452,10 +475,17 @@ export class AtlasMap {
 
     const head = bezierAt(legs[leg].a, legs[leg].c, legs[leg].b, t);
     if (f.progress <= 1) {
-      const r = f.style === "frame" ? 3 : f.style === "push" ? 5.5 : 4.5;
+      const r = f.style === "frame" || f.style === "mcp-handshake" ? 3 : f.style === "mcp-frame" ? 2.5 : f.style === "push" ? 5.5 : 4.5;
       ctx.beginPath();
       if (f.style === "card") ctx.rect(head.x - 4, head.y - 4, 8, 8);
-      else ctx.arc(head.x, head.y, r, 0, Math.PI * 2);
+      else if (f.style === "mcp") {
+        // Diamond head: MCP (agent → tool) vs round heads for A2A (agent ↔ agent).
+        ctx.moveTo(head.x, head.y - 6);
+        ctx.lineTo(head.x + 6, head.y);
+        ctx.lineTo(head.x, head.y + 6);
+        ctx.lineTo(head.x - 6, head.y);
+        ctx.closePath();
+      } else ctx.arc(head.x, head.y, r, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
       ctx.lineWidth = 2;
@@ -467,7 +497,7 @@ export class AtlasMap {
       if (p) this.cross(ctx, f.blockedAt === HUB ? { x: p.x, y: p.y + HUB_H / 2 + 8 } : p);
     }
     const important = f.style === "denied" || f.style === "fault" || f.style === "push";
-    if (f.label && f.progress <= 1 && (labels || important) && f.style !== "frame") {
+    if (f.label && f.progress <= 1 && (labels || important) && f.style !== "frame" && f.style !== "mcp-frame" && f.style !== "mcp-handshake") {
       ctx.font = "600 11px ui-sans-serif, system-ui, sans-serif";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";

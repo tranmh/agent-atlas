@@ -75,3 +75,31 @@ describe("flights", () => {
     expect(flightsAt([req], req.t + LEG_MS, new Set(), () => false)).toHaveLength(0);
   });
 });
+
+describe("MCP flights", () => {
+  it("draws tool calls to the server and the handshake only to the gateway", () => {
+    const call = ev("mcp_request", { source: "agent", from: "sc-logistics", to: "sc-erp", method: "tools/call", corr: "m1", payload: { params: { name: "erp_quote_freight" } } });
+    expect(routeOf(call, new Set())).toMatchObject({ legs: [["sc-logistics", HUB], [HUB, "sc-erp"]], style: "mcp", label: "MCP erp_quote_freight" });
+    const init = ev("mcp_request", { source: "agent", from: "sc-logistics", to: "agentgateway", method: "initialize" });
+    expect(routeOf(init, new Set())).toMatchObject({ legs: [["sc-logistics", HUB]], style: "mcp-handshake" });
+    const prog = ev("mcp_progress", { from: "sc-erp", to: "sc-logistics" });
+    expect(routeOf(prog, new Set())?.style).toBe("mcp-frame");
+  });
+
+  it("stops a refused tool call at the gateway", () => {
+    const call = ev("mcp_request", { from: "sc-field-service", to: "sc-erp", method: "tools/call", corr: "m9" });
+    const denied = ev("mcp_denied", { from: "agentgateway", to: "sc-field-service", corr: "m9" });
+    const r = routeOf(call, deniedCorrs([call, denied]));
+    expect(r?.legs).toEqual([["sc-field-service", HUB]]);
+    expect(r?.blockedAt).toBe(HUB);
+    expect(routeOf(denied, new Set())?.label).toBe("MCP denied");
+  });
+
+  it("pulses the MCP server when a call arrives", () => {
+    const s = emptyView();
+    applyEvent(s, ev("mcp_server_call", { from: "sc-logistics", to: "sc-erp", note: "ERP received tool quote_freight" }));
+    expect(s.agents.get("sc-erp")?.activeT).toBeDefined();
+    applyEvent(s, ev("mcp_denied", { from: "agentgateway", to: "sc-field-service" }));
+    expect(s.agents.get("sc-field-service")?.faultT).toBeDefined();
+  });
+});

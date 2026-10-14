@@ -48,7 +48,7 @@ export const EventList = memo(function EventList({ events, scenarios, groups, se
                 <span className="flex items-center gap-1.5">
                   <span className="font-mono text-[10px] tabular-nums text-ink-3">{clock(e.t).slice(0, 8)}</span>
                   <ScenarioBadge code={e.scenario} scenarios={scenarios} />
-                  <span className={`font-semibold ${e.kind === "policy_denied" || e.kind === "fault_injected" ? "text-critical" : ""}`}>
+                  <span className={`font-semibold ${e.kind === "policy_denied" || e.kind === "fault_injected" || e.kind === "mcp_denied" ? "text-critical" : ""}`}>
                     {info.icon} {info.label}
                   </span>
                   {e.method ? <span className="truncate font-mono text-[10.5px] text-ink-2">{e.method}</span> : null}

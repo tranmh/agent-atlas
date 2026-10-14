@@ -26,6 +26,12 @@ export const EVENT_KINDS = [
   "llm_request",
   "llm_response",
   "llm_unavailable",
+  "mcp_request",
+  "mcp_response",
+  "mcp_progress",
+  "mcp_denied",
+  "mcp_server_call",
+  "llm_tool_choice",
   "gateway_access",
 ] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
@@ -114,7 +120,34 @@ const AgentSchema = PlaceSchema.extend({
   feature: z.enum(FEATURES),
   mode: z.enum(["scripted", "llm"]),
   skills: z.array(SkillSchema),
+  /** Script steps; only the MCP references (tool, resource, tools, prompt_from) are read by the UI. */
+  script: z
+    .array(
+      z.object({
+        tool: z.object({ server: z.string(), name: z.string(), expect: z.string().optional() }).optional(),
+        resource: z.object({ server: z.string(), uri: z.string() }).optional(),
+        tools: z.array(z.string()).optional(),
+        prompt_from: z.object({ server: z.string(), name: z.string() }).optional(),
+      }),
+    )
+    .default([]),
 });
+
+const MCPServerSchema = PlaceSchema.extend({
+  role: z.enum(["data", "ops"]),
+  tools: z.array(
+    z.object({
+      name: z.string(),
+      description: z.string().default(""),
+      params: z.array(z.object({ name: z.string(), type: z.string(), enum: z.array(z.string()).optional() })).default([]),
+      progress: z.object({ steps: z.number() }).optional(),
+      write: z.boolean().optional(),
+    }),
+  ),
+  resources: z.array(z.object({ uri: z.string(), name: z.string(), mime: z.string().default("") })).default([]),
+  prompts: z.array(z.object({ name: z.string(), description: z.string().default("") })).default([]),
+});
+export type MCPServer = z.infer<typeof MCPServerSchema>;
 export type Agent = z.infer<typeof AgentSchema>;
 
 const PlanStepSchema = z.object({
@@ -140,6 +173,7 @@ export const ScenarioSchema = z.object({
   agents: z.array(AgentSchema),
   plan: z.array(PlanStepSchema),
   closing: z.string().default(""),
+  mcp_servers: z.array(MCPServerSchema).default([]),
 });
 export type Scenario = z.infer<typeof ScenarioSchema>;
 

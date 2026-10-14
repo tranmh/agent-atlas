@@ -14,7 +14,16 @@ export const MAX_LEGS = 4;
 export const TRAIL_MS = 1200;
 export const FLIGHT_WINDOW_MS = MAX_LEGS * LEG_MS + TRAIL_MS;
 
-export type FlightStyle = "send" | "stream" | "frame" | "card" | "push" | "denied" | "fault" | "llm";
+export type FlightStyle = "send" | "stream" | "frame" | "card" | "push" | "denied" | "fault" | "llm" | "mcp" | "mcp-frame" | "mcp-handshake";
+
+/** MCP methods that do work on a server (drawn to the server pin); everything else is the session with the gateway. */
+const MCP_WORK = new Set(["tools/call", "resources/read", "prompts/get"]);
+
+function mcpLabel(e: AtlasEvent): string {
+  const p = e.payload as { params?: { name?: string; uri?: string } } | undefined;
+  const subject = p?.params?.name ?? p?.params?.uri ?? "";
+  return `MCP ${subject || e.method || ""}`.trim();
+}
 
 export interface Flight {
   event: AtlasEvent;
@@ -62,6 +71,23 @@ export function routeOf(e: AtlasEvent, deniedCorr: ReadonlySet<string>): Omit<Fl
       return { legs: [[LLM, HUB], [HUB, e.to ?? ""]], style: "llm", label: "LLM answer" };
     case "llm_unavailable":
       return { legs: [[HUB, e.from ?? ""]], style: "fault", label: "LLM down" };
+    case "mcp_request": {
+      const agent = e.from ?? "";
+      if (!MCP_WORK.has(e.method ?? "") || !e.to || e.to === "agentgateway") {
+        return { legs: [[agent, HUB]], style: "mcp-handshake" };
+      }
+      if (e.corr && deniedCorr.has(e.corr)) {
+        return { legs: [[agent, HUB]], style: "denied", label: mcpLabel(e), blockedAt: HUB };
+      }
+      return { legs: [[agent, HUB], [HUB, e.to]], style: "mcp", label: mcpLabel(e) };
+    }
+    case "mcp_response":
+      if (!MCP_WORK.has(e.method ?? "") || !e.from || e.from === "agentgateway") return { legs: [[HUB, e.to ?? ""]], style: "mcp-handshake" };
+      return { legs: [[e.from, HUB], [HUB, e.to ?? ""]], style: "mcp" };
+    case "mcp_progress":
+      return { legs: [[e.from ?? "", HUB], [HUB, e.to ?? ""]], style: "mcp-frame" };
+    case "mcp_denied":
+      return { legs: [[HUB, e.to ?? ""]], style: "denied", label: "MCP denied" };
     default:
       return null;
   }
@@ -90,6 +116,6 @@ export function flightsAt(windowEvents: readonly AtlasEvent[], playhead: number,
 /** Correlation ids of requests refused by the gateway (policy_denied events). */
 export function deniedCorrs(events: readonly AtlasEvent[]): Set<string> {
   const s = new Set<string>();
-  for (const e of events) if (e.kind === "policy_denied" && e.corr) s.add(e.corr);
+  for (const e of events) if ((e.kind === "policy_denied" || e.kind === "mcp_denied") && e.corr) s.add(e.corr);
   return s;
 }

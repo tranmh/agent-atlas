@@ -11,35 +11,6 @@ export interface NodeLike {
   lon: number;
 }
 
-/**
- * Pixel offsets for nodes that share a location (several agents in Graz):
- * they sit on a small circle around the city, in a stable order by id.
- * Nodes alone at their location get {0, 0}.
- */
-export function colocatedOffsets(nodes: readonly NodeLike[], precision = 0.05): Map<string, Pt> {
-  const groups = new Map<string, NodeLike[]>();
-  for (const n of nodes) {
-    const key = `${Math.round(n.lat / precision)}:${Math.round(n.lon / precision)}`;
-    const g = groups.get(key) ?? [];
-    g.push(n);
-    groups.set(key, g);
-  }
-  const out = new Map<string, Pt>();
-  for (const g of groups.values()) {
-    g.sort((a, b) => a.id.localeCompare(b.id));
-    if (g.length === 1) {
-      out.set(g[0].id, { x: 0, y: 0 });
-      continue;
-    }
-    const r = 12 + 4 * g.length;
-    g.forEach((n, i) => {
-      const a = -Math.PI / 2 + (2 * Math.PI * i) / g.length;
-      out.set(n.id, { x: Math.round(r * Math.cos(a)), y: Math.round(r * Math.sin(a)) });
-    });
-  }
-  return out;
-}
-
 /** Control point of a curved leg from a to b (bends to the left of a→b). */
 export function controlPoint(a: Pt, b: Pt, bend = 0.22): Pt {
   const mx = (a.x + b.x) / 2;
@@ -75,4 +46,52 @@ export function distToSegment(p: Pt, a: Pt, b: Pt): number {
   const x = a.x + t * dx;
   const y = a.y + t * dy;
   return Math.hypot(p.x - x, p.y - y);
+}
+
+export interface ScreenNode {
+  id: string;
+  x: number;
+  y: number;
+}
+
+/**
+ * Pixel offsets that keep pins apart at the current zoom with as little
+ * displacement as possible: overlapping pins push each other apart, and every
+ * pin is pulled back towards its true position. Deterministic (fixed order,
+ * fixed tie-break angles), so the same input gives the same layout.
+ */
+export function declutterOffsets(nodes: readonly ScreenNode[], minDist = 26, iterations = 150): Map<string, Pt> {
+  const sorted = [...nodes].sort((a, b) => a.id.localeCompare(b.id));
+  const pos = sorted.map((n) => ({ x: n.x, y: n.y }));
+  for (let it = 0; it < iterations; it++) {
+    for (let i = 0; i < pos.length; i++) {
+      for (let j = i + 1; j < pos.length; j++) {
+        let dx = pos[j].x - pos[i].x;
+        let dy = pos[j].y - pos[i].y;
+        let d = Math.hypot(dx, dy);
+        if (d >= minDist) continue;
+        if (d < 1e-6) {
+          // Same spot: separate along a fixed angle per pair.
+          const a = ((i * 7 + j * 13) % 360) * (Math.PI / 180);
+          dx = Math.cos(a);
+          dy = Math.sin(a);
+          d = 1;
+        }
+        const push = (minDist - d) / 2 / d;
+        pos[i].x -= dx * push;
+        pos[i].y -= dy * push;
+        pos[j].x += dx * push;
+        pos[j].y += dy * push;
+      }
+    }
+    // Pull back towards the true position; the last iterations only separate.
+    if (it >= (iterations * 2) / 3) continue;
+    sorted.forEach((n, k) => {
+      pos[k].x += (n.x - pos[k].x) * 0.04;
+      pos[k].y += (n.y - pos[k].y) * 0.04;
+    });
+  }
+  const out = new Map<string, Pt>();
+  sorted.forEach((n, k) => out.set(n.id, { x: Math.round(pos[k].x - n.x), y: Math.round(pos[k].y - n.y) }));
+  return out;
 }

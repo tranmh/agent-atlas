@@ -84,6 +84,34 @@ body {
   border-radius: 7px;
   border-width: 3px;
 }
+/* MCP servers: hexagons, a tool not an agent. The shape is an inner element so
+   clip-path does not cut off the label and badge. */
+.atlas-pin--mcp {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+.atlas-pin__hex {
+  position: absolute;
+  inset: -2px;
+  background: #fcfcfb;
+  clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0% 50%);
+}
+.atlas-pin__hex::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  background: var(--c);
+  clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0% 50%);
+}
+.atlas-pin--mcp .atlas-pin__code {
+  position: relative;
+  font-size: 11px;
+}
+.atlas-pin--mcp .atlas-pin__label {
+  font-style: italic;
+}
 .atlas-pin--idle {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
@@ -209,4 +237,9 @@ body {
   :root:where(:not([data-theme="light"])) .json-literal {
     color: #6da7ec;
   }
+}
+.atlas-pin--mcp.atlas-pin--idle,
+.atlas-pin--mcp.atlas-pin--working {
+  box-shadow: none;
+  animation: none;
 }

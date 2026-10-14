@@ -1,21 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { bezierAt, colocatedOffsets, controlPoint, legPosition } from "./geo";
+import { bezierAt, controlPoint, declutterOffsets, legPosition } from "./geo";
 
 describe("geo", () => {
-  it("spreads co-located nodes on a circle and leaves lone nodes alone", () => {
-    const off = colocatedOffsets([
-      { id: "b", lat: 47.07, lon: 15.44 },
-      { id: "a", lat: 47.07, lon: 15.44 },
-      { id: "c", lat: 1.35, lon: 103.8 },
-    ]);
-    expect(off.get("c")).toEqual({ x: 0, y: 0 });
-    const a = off.get("a")!;
-    const b = off.get("b")!;
-    expect(a).not.toEqual(b);
-    expect(Math.hypot(a.x, a.y)).toBeCloseTo(Math.hypot(b.x, b.y), 0);
-    expect(a.y).toBeLessThan(0); // first in id order sits on top
-  });
-
   it("evaluates curves and leg positions", () => {
     const a = { x: 0, y: 0 };
     const b = { x: 100, y: 0 };
@@ -25,5 +11,37 @@ describe("geo", () => {
     expect(bezierAt(a, c, b, 1)).toEqual(b);
     expect(legPosition(2, 0.75)).toEqual({ leg: 1, t: 0.5 });
     expect(legPosition(2, 1)).toEqual({ leg: 1, t: 1 });
+  });
+});
+
+describe("declutterOffsets", () => {
+  it("spreads nearby pins so no two are closer than minDist, and leaves far ones alone", () => {
+    const nodes = [
+      { id: "a", x: 100, y: 100 },
+      { id: "b", x: 108, y: 104 },
+      { id: "c", x: 112, y: 96 },
+      { id: "far", x: 400, y: 400 },
+    ];
+    const off = declutterOffsets(nodes, 26);
+    expect(off.get("far")).toEqual({ x: 0, y: 0 });
+    const placed = nodes.slice(0, 3).map((n) => ({ x: n.x + off.get(n.id)!.x, y: n.y + off.get(n.id)!.y }));
+    for (let i = 0; i < placed.length; i++)
+      for (let j = i + 1; j < placed.length; j++) expect(Math.hypot(placed[i].x - placed[j].x, placed[i].y - placed[j].y)).toBeGreaterThanOrEqual(22);
+  });
+
+  it("moves a crowd only locally", () => {
+    // 20 pins in a 30 px blob plus one pin 120 px away that does not overlap.
+    const blob = Array.from({ length: 20 }, (_, i) => ({ id: `n${i}`, x: 100 + (i % 5) * 6, y: 100 + Math.floor(i / 5) * 6 }));
+    const off = declutterOffsets([...blob, { id: "far", x: 260, y: 100 }]);
+    for (const n of blob) expect(Math.hypot(off.get(n.id)!.x, off.get(n.id)!.y)).toBeLessThan(90);
+    expect(Math.hypot(off.get("far")!.x, off.get("far")!.y)).toBeLessThan(20);
+  });
+
+  it("is stable for identical input", () => {
+    const nodes = [
+      { id: "x", x: 0, y: 0 },
+      { id: "y", x: 0, y: 0 },
+    ];
+    expect(declutterOffsets(nodes)).toEqual(declutterOffsets([...nodes].reverse()));
   });
 });
