@@ -58,3 +58,27 @@ func TestReporterWithoutURLDiscards(t *testing.T) {
 	r.Close()
 	require.Zero(t, r.Dropped())
 }
+
+// Review G1: work still running at shutdown (a2a-go executions are detached
+// from the request) may emit after Close; that must not panic.
+func TestReporterEmitAfterCloseDoesNotPanic(t *testing.T) {
+	r := NewReporter("http://127.0.0.1:1", nil)
+	r.Close()
+	require.NotPanics(t, func() { r.Emit(Event{Kind: KindAgentWork}) })
+}
+
+func TestReporterConcurrentEmitAndClose(t *testing.T) {
+	r := NewReporter("http://127.0.0.1:1", nil)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 500; j++ {
+				r.Emit(Event{Kind: KindAgentWork})
+			}
+		}()
+	}
+	r.Close()
+	wg.Wait()
+}
