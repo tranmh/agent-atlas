@@ -1,7 +1,8 @@
 # Agent Atlas
 
-Learn the **A2A protocol** (Agent2Agent, v1.0) by watching it. Twenty small Go agents sit at real places
-on a world map. Five orchestrators delegate work to them, and every call goes through
+Learn **A2A** (Agent2Agent, v1.0) and **MCP** (Model Context Protocol) by watching them. Twenty small Go
+agents and ten MCP servers sit at real places on a world map. Five orchestrators delegate work to the agents
+over A2A; the agents use tools, data and prompts from the MCP servers; every call goes through
 **[agentgateway](https://agentgateway.dev)**. A browser UI replays the real protocol traffic slowly enough
 for a person to follow: animated messages, the JSON-RPC payloads, the task state machine, the gateway's
 own log, and a debugger-style replay with pause, single step and scrubber.
@@ -23,7 +24,12 @@ real protocol events, not from a simulation.
 | Dashed line, then small dots | `SendStreamingMessage` and its Server-Sent Events frames |
 | Square dot, round trip | Agent card discovery (`/.well-known/agent-card.json`) |
 | Dotted line that skips the gateway | Push notification to the orchestrator's webhook |
-| Red line with ✕ | The gateway refused the call (403), or chaos made the agent answer 503 and the gateway retried |
+| Hexagon | An MCP server (tools, resources, prompts) |
+| Dash-dot line, diamond head | MCP tool call or resource read (agent → gateway → MCP server); small dots are progress notifications |
+| Red line with ✕ | The gateway refused the call (A2A 403, MCP write tool), or chaos made the agent answer 503 and the gateway retried |
+
+**A2A vs MCP in one sentence:** A2A is agent ↔ agent (delegating a task with a lifecycle), MCP is
+agent → tool (calling a function, reading data, fetching a prompt).
 
 Every scenario uses the same five protocol features, one per agent:
 
@@ -35,15 +41,24 @@ Every scenario uses the same five protocol features, one per agent:
 | Long task + push | `returnImmediately`, push notifications to a webhook, then `GetTask` for the result. | `delay` of 2 s |
 | Restricted | A CEL authorization policy: only the own orchestrator, never a `restricted-*` skill. | `authorization` |
 
+Every scenario also has two MCP servers behind one multiplexed gateway route `/mcp/<code>`:
+
+| MCP feature | How it shows up | Gateway policy |
+|---|---|---|
+| Tools chosen by the model | The LLM agent fetches its system prompt over MCP (`prompts/get`), lists the tools (`tools/list`, already filtered by the gateway) and lets qwen3 call them as functions; the results go back to the model. | multiplexing prefixes names per server |
+| Resources | The multi-turn agent reads a manual or a rule document (`resources/read`). | |
+| Progress | The long-task agent calls a slow tool; its progress notifications stream through the gateway and become A2A status updates. | |
+| Tool authorization | The restricted agent tries a write tool. The gateway hides write tools from `tools/list` and refuses the call (400 "Unknown tool"); it never reaches the server. | `mcpAuthorization` (CEL on `mcp.tool.name`), plus HTTP `authorization`: only the scenario's own agents |
+
 The five scenarios:
 
-| Code | Scenario | Orchestrator |
-|---|---|---|
-| SC | ANDRITZ service case: bearing alarm on a turbine in Brazil | Service Desk, Göppingen |
-| EX | Export order & customs: a refiner for Canada | Sales Hub, Vienna |
-| PM | Predictive maintenance: vibration anomaly at a Finnish pulp mill | Monitoring Center, Graz |
-| TR | Business travel booking: Munich to New Delhi | Travel Desk, Munich |
-| KH | Global expert finder: a question from Pohang | Knowledge Hub, Graz |
+| Code | Scenario | Orchestrator | MCP servers |
+|---|---|---|---|
+| SC | ANDRITZ service case: bearing alarm on a turbine in Brazil | Service Desk, Göppingen | Plant Historian (Curitiba), ERP & Spare Parts (São Paulo) |
+| EX | Export order & customs: a refiner for Canada | Sales Hub, Vienna | Tariff & Sanctions DB (Luxembourg), Order Management (Montreal) |
+| PM | Predictive maintenance: vibration anomaly at a Finnish pulp mill | Monitoring Center, Graz | Mill Historian (Jyväskylä), Maintenance System (Oulu) |
+| TR | Business travel booking: Munich to New Delhi | Travel Desk, Munich | Flight Inventory (Madrid), HR & Travel Policy (Hamburg) |
+| KH | Global expert finder: a question from Pohang | Knowledge Hub, Graz | Document Store (Dublin), Translation Memory (Seoul) |
 
 Scenarios are YAML files in `scenarios/`. `make gen` turns them into the compose services and the gateway
 config.
@@ -54,7 +69,7 @@ You need Docker with Compose v2, `make`, `curl` and `jq`. For the tests also Go 
 
 ```bash
 cp .env.example .env
-make up            # ~30 containers, waits until healthy
+make up            # ~40 containers, waits until healthy
 make ollama-install  # optional: local LLM for the five LLM agents (no root, ~3 GB download)
 ```
 
@@ -90,12 +105,14 @@ flowchart LR
     LLMR[":3100 LLM route"]
   end
   ORCH["5 orchestrators<br/>(A2A clients)"]
-  AG["20 agents<br/>(A2A servers, a2a-go)"]
+  AG["20 agents<br/>(A2A servers, a2a-go;<br/>MCP clients)"]
+  MCPS["10 MCP servers<br/>(go-sdk)"]
   OLL["Ollama on the host<br/>qwen3:1.7b"]
   J["Jaeger"]
   UI -- "SSE + REST" --> VIZ
   VIZ -- "POST /run" --> ORCH
   ORCH -- "cards, SendMessage, SendStreamingMessage, GetTask" --> A2A --> AG
+  AG -- "tools/list, tools/call, resources/read, prompts/get" --> MCPR[":3000 MCP routes<br/>/mcp/&lt;code&gt;"] --> MCPS
   AG -. "push notifications (direct)" .-> ORCH
   AG -- "chat completions" --> LLMR --> OLL
   ORCH -- "events" --> VIZ
@@ -129,10 +146,13 @@ make record-sample     # re-record the bundled sample
 | ![Central Europe](docs/screenshots/central-europe.png) Central Europe: four scenarios share Graz, Vienna, Munich and Göppingen. | ![Agent card](docs/screenshots/agent-card-rewritten.png) Discovery: the card's URL was rewritten by the gateway. |
 | ![Policy](docs/screenshots/policy-denied.png) The gateway refuses a restricted skill (403); the agent never sees it. | ![Task](docs/screenshots/task-state-machine.png) A multi-turn task: input-required, then completed. |
 | ![Gateway log](docs/screenshots/gateway-log.png) The gateway's own view, including the retry. | ![Breakpoint](docs/screenshots/breakpoint.png) Breakpoint mode: the orchestrator waits for you. |
+| ![MCP tool choice](docs/screenshots/mcp-tool-choice.png) The model picked an MCP tool; the agent runs it through the gateway. | ![MCP denied](docs/screenshots/mcp-denied.png) The gateway's MCP policy refuses a write tool. |
+| ![MCP server](docs/screenshots/mcp-server.png) An MCP server: prefixed tools, the hidden write tool, who uses it. | |
 
 ## More
 
 - [docs/plans/2026-10-14-master-plan.md](docs/plans/2026-10-14-master-plan.md) and [PROGRESS.md](docs/plans/PROGRESS.md): plan, decisions, deviations.
 - [docs/events.md](docs/events.md): the event log contract.
 - [docs/ollama.md](docs/ollama.md): the local LLM setup and CPU-vs-iGPU measurements.
-- Built on [a2a-go](https://github.com/a2aproject/a2a-go) v2.6.0 (A2A v1.0) and agentgateway v1.6.0.
+- [docs/plans/2026-10-14-mcp-plan.md](docs/plans/2026-10-14-mcp-plan.md): the MCP extension.
+- Built on [a2a-go](https://github.com/a2aproject/a2a-go) v2.6.0 (A2A v1.0), the [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) v1.8.0 and agentgateway v1.6.0.

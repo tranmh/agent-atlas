@@ -7,7 +7,7 @@ const out = (name: string) => `../docs/screenshots/${name}.png`;
 test("screenshots", async ({ page }) => {
   test.setTimeout(300_000);
   await page.goto("/");
-  await expect(page.locator(".atlas-pin")).toHaveCount(25);
+  await expect(page.locator(".atlas-pin")).toHaveCount(35);
   await page.getByLabel("Scenario to run").selectOption("all");
   await page.getByLabel("Agent speed").selectOption("1");
   await page.getByRole("checkbox", { name: "Chaos" }).check();
@@ -41,6 +41,25 @@ test("screenshots", async ({ page }) => {
   await page.getByTestId("tab-gateway").click();
   await page.waitForTimeout(500);
   await page.screenshot({ path: out("gateway-log") });
+
+  // MCP: the model's tool choice, a refused write tool, an MCP server.
+  const choice = page.locator('[data-kind="llm_tool_choice"]').first();
+  if (await choice.count()) {
+    await choice.click();
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: out("mcp-tool-choice") });
+  }
+  const denied = page.locator('[data-kind="mcp_denied"]').first();
+  if (await denied.count()) {
+    await denied.click();
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: out("mcp-denied") });
+  }
+  await page.getByRole("button", { name: "World" }).click();
+  await page.waitForTimeout(800);
+  await page.locator('.atlas-pin[data-agent="ERP & Spare Parts"]').click();
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: out("mcp-server") });
   await page.getByTestId("chip-sc").click();
 
   // Breakpoint prompt, live.

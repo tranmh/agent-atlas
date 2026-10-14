@@ -4,7 +4,7 @@ import { VIZ_URL } from "../helpers/env";
 async function open(page: Page) {
   await page.goto("/");
   await expect(page.getByTestId("scenario-chips").locator("li")).toHaveCount(5);
-  await expect(page.locator(".atlas-pin")).toHaveCount(25); // 5 orchestrators + 20 agents
+  await expect(page.locator(".atlas-pin")).toHaveCount(35); // 5 orchestrators + 20 agents + 10 MCP servers
   await expect(page.getByTestId("connection")).toHaveAttribute("data-state", "live");
 }
 
@@ -60,18 +60,27 @@ test("solo a scenario dims the others", async ({ page }) => {
   await page.getByTestId("chip-tr").click();
   await expect(page.getByTestId("chip-tr")).toHaveAttribute("aria-pressed", "true");
   const opacities = await page.locator(".leaflet-marker-icon").evaluateAll((els) => els.map((e) => (e as HTMLElement).style.opacity));
-  expect(opacities.filter((o) => o === "1")).toHaveLength(5);
-  expect(opacities.filter((o) => o === "0.22")).toHaveLength(20);
+  expect(opacities.filter((o) => o === "1")).toHaveLength(7);
+  expect(opacities.filter((o) => o === "0.22")).toHaveLength(28);
   await page.getByTestId("chip-tr").click();
 });
 
 test("breakpoints: the gate prompt holds the run until Continue", async ({ page }) => {
+  // Abort runs left waiting at a gate by earlier (failed) attempts.
+  for (let i = 0; i < 3; i++) {
+    await page.request.post(`${VIZ_URL}/api/gate/release`, { data: { all: true, action: "abort" } });
+    await page.waitForTimeout(500);
+  }
   await open(page);
+  // Live mode plays 1.5 s behind: wait until the aborted gates are gone from the UI too.
+  await expect(page.getByTestId("gate-prompt")).toHaveCount(0, { timeout: 15_000 });
   await run(page, "ex", { breakpoints: true });
   const prompt = page.getByTestId("gate-prompt");
-  await expect(prompt).toContainText("before credit", { timeout: 20_000 });
-  await prompt.getByTestId("gate-continue").click();
-  await expect(prompt).toContainText("before export", { timeout: 30_000 });
+  const credit = prompt.locator("li", { hasText: "before credit" });
+  await expect(credit).toBeVisible({ timeout: 20_000 });
+  await credit.getByTestId("gate-continue").click();
+  // The credit step runs the model with MCP tools; give it time.
+  await expect(prompt).toContainText("before export", { timeout: 90_000 });
   // Let the rest of the run go: keep releasing gates through the API until it finishes.
   await expect
     .poll(
@@ -101,4 +110,29 @@ test("the bundled sample replays without a live run", async ({ page }) => {
   await expect(page.getByTestId("event-list").locator("li").first()).toBeVisible();
   await page.getByTestId("source-menu").selectOption("live");
   await expect(page.getByTestId("connection")).toHaveAttribute("data-state", "live");
+});
+
+test("MCP servers are hexagons with their tools, resources and users", async ({ page }) => {
+  await open(page);
+  await expect(page.locator(".atlas-pin--mcp")).toHaveCount(10);
+  await page.getByTestId("zoom-europe").click();
+  await page.locator('.atlas-pin[data-agent="Tariff & Sanctions DB"]').click();
+  const panel = page.getByTestId("mcp-panel");
+  await expect(panel).toContainText("tariffs_file_declaration(order)");
+  await expect(panel).toContainText("tariffs+tariffs://ex/rules/dual-use");
+  await expect(panel).toContainText("Credit Check");
+  await page.getByRole("button", { name: "World" }).click();
+});
+
+test("MCP events have their own filter and explanations", async ({ page }) => {
+  await open(page);
+  await page.getByLabel("Scenario to run").selectOption("tr");
+  await page.getByLabel("Agent speed").selectOption("4");
+  await page.getByRole("checkbox", { name: "Breakpoints" }).uncheck();
+  await page.getByTestId("run-button").click();
+  await expect(page.locator('[data-kind="mcp_progress"]').first()).toBeVisible({ timeout: 60_000 });
+  await page.getByRole("button", { name: "A2A", exact: true }).click(); // hide A2A, keep MCP
+  await page.locator('[data-kind="mcp_denied"]').first().click({ timeout: 60_000 });
+  await expect(page.getByTestId("payload-panel")).toContainText("hides write tools from tools/list");
+  await page.getByRole("button", { name: "A2A", exact: true }).click();
 });

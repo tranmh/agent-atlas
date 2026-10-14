@@ -15,13 +15,17 @@ One line per directory. See `CLAUDE.md` for conventions and commands, `docs/even
 - `cmd/agent/` — one A2A worker agent (`AGENT_ID`); card, script and feature come from the scenario.
 - `cmd/orchestrator/` — one scenario's orchestrator (`ORCH_ID`): `POST /run`, push webhook `POST /push/{token}`.
 - `cmd/visualizer/` — event hub: `POST /api/events`, SSE `GET /api/events/stream`, sessions, runs, gates, `POST /otlp/v1/logs`.
-- `cmd/atlasgen/` — generates the gateway config, `compose.agents.yml` and `web/public/samples/scenarios.json`; its test fails on stale output.
+- `cmd/mcpserver/` — one scenario MCP server (`MCP_SERVER_ID`), Streamable HTTP at `/mcp`.
+- `cmd/atlasgen/` — generates the gateway config (A2A + MCP routes), `compose.agents.yml` and `web/public/samples/scenarios.json`; its test fails on stale output.
 
 ## Go packages (`internal/`)
 
-- `internal/scenario/` — scenario schema, loader, validation (one agent per feature, one LLM agent, plan consistency).
+- `internal/scenario/` — scenario schema, loader, validation (one agent per feature, one LLM agent, plan consistency, two MCP servers with one slow and one write tool).
 - `internal/events/` — event schema (`Event`, kinds), payload truncation, async batching `Reporter`, test `Recorder`.
-- `internal/script/` — scripted A2A executor: steps → status updates, artifacts, input-required resume, LLM step with fallback, speed factor.
+- `internal/script/` — scripted A2A executor: steps → status updates, artifacts, input-required resume, MCP `tool`/`resource` steps, the LLM tool loop over MCP with fallback, speed factor.
+- `internal/mcpx/` — the agents' MCP client through the gateway, with wire events (`mcp_request/response/progress/denied`); `mcpxtest/` fakes the gateway's multiplexed MCP route for tests.
+- `internal/mcpserver/` — scenario MCP servers on the go-sdk: typed tools with templated results, progress, resources, prompts, `mcp_server_call` events.
+- `internal/wire/` — shared HTTP capture: SSE tee, request/response buffering (used by `a2ax` and `mcpx`).
 - `internal/agent/` — agent assembly: card, a2a-go JSON-RPC handler, push sender, request-capture and chaos middleware.
 - `internal/a2ax/` — orchestrator wire capture (`Transport` RoundTripper: run headers, traceparent, card/RPC/SSE/403 events), task-state `Tracker`.
 - `internal/orchestrator/` — plan runner (send, stream, push + GetTask, expected denial, parallel steps), webhook, breakpoint gate.
@@ -41,7 +45,7 @@ One line per directory. See `CLAUDE.md` for conventions and commands, `docs/even
 
 ## e2e (`e2e/`, Playwright 1.56.1)
 
-- `tests/api/` — gateway card rewrite, authorization, full runs (service case, all five at once), breakpoints, SSE resume.
+- `tests/api/` — gateway card rewrite, authorization, full runs (service case, all five at once), breakpoints, SSE resume; MCP routes (multiplexing, refused write tool, foreign caller, progress), MCP in a run.
 - `tests/ui/` — map, run animation, replay and panels, solo, breakpoint prompt, agent card, sample replay.
 - `tests/screenshots/` — `make screenshots`. `tests/helpers/` — env, SSE reader, run helpers.
 
