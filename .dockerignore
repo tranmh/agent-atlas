@@ -1,0 +1,12 @@
+# Keep the Go build context small (build/go.Dockerfile uses the repo root).
+.git
+.claude
+bin
+web
+e2e
+docs
+data
+node_modules
+**/node_modules
+.env
+*.log

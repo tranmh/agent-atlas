@@ -1,0 +1,43 @@
+{
+  "extends": ["next/core-web-vitals", "next/typescript"],
+  "ignorePatterns": [".next/", "node_modules/", "next-env.d.ts"],
+  "overrides": [
+    {
+      "files": ["src/map/**/*.ts", "src/replay/**/*.ts", "src/events/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              { "name": "react", "message": "src/map, src/replay and src/events stay framework-free." },
+              { "name": "react-dom", "message": "src/map, src/replay and src/events stay framework-free." },
+              { "name": "next", "message": "src/map, src/replay and src/events stay framework-free." }
+            ],
+            "patterns": [
+              { "group": ["react/*", "react-dom/*", "next/*"], "message": "Framework-free core." },
+              { "group": ["@/components/*", "@/hooks/*", "@/app/*", "@/lib/*"], "message": "The core may only import from src/map, src/replay, src/events and plain libraries." }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/map/**/*.ts", "src/replay/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              { "name": "react", "message": "Framework-free core." },
+              { "name": "zod", "message": "Validate in src/events/schema.ts, not in the map or replay core." }
+            ],
+            "patterns": [
+              { "group": ["react/*", "react-dom/*", "next/*"], "message": "Framework-free core." },
+              { "group": ["@/components/*", "@/hooks/*", "@/app/*", "@/lib/*"], "message": "Framework-free core." }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
