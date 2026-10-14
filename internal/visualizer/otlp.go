@@ -131,8 +131,6 @@ func AccessEvent(attrs map[string]any, limit int) (events.Event, bool) {
 		}
 		if status == 400 && str("reason") == "MCP" {
 			e.Note = fmt.Sprintf("agentgateway: MCP policy refused %s for %s (400 Unknown tool)", str("mcp_tool"), caller)
-			e.WithValue(attrs, limit)
-			return e, true
 		}
 	} else if model := str("gen_ai.request.model"); model != "" || strings.HasPrefix(path, "/v1/") {
 		e.To = "llm"
@@ -149,6 +147,10 @@ func AccessEvent(attrs map[string]any, limit int) (events.Event, bool) {
 	if ns, ok := attrs[timeKey].(int64); ok {
 		e.ProducedTS = time.Unix(0, ns).UTC()
 		delete(attrs, timeKey)
+	}
+	if e.Note != "" {
+		e.WithValue(attrs, limit)
+		return e, true
 	}
 	e.Note = fmt.Sprintf("agentgateway: %s %s → %s %d in %d ms", firstNonEmpty(caller, "unknown caller"), e.Method, firstNonEmpty(e.To, path), status, e.DurationMS)
 	if n, _ := strconv.Atoi(str("retry.attempt")); n > 0 {

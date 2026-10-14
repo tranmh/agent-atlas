@@ -121,5 +121,5 @@ func TestToolArgumentTypesAndEnums(t *testing.T) {
 	require.Empty(t, CheckArgs(tool, map[string]any{"asset": "{{input}}", "signal": "vibration", "days": 7}))
 	problems := CheckArgs(tool, map[string]any{"asset": "T3", "signal": "bogus", "days": "seven"})
 	require.Contains(t, problems, `argument "signal" must be one of [bearing_temp vibration]`)
-	require.Contains(t, problems, `argument "days" must be a integer`)
+	require.Contains(t, problems, `argument "days" must be an integer`)
 }

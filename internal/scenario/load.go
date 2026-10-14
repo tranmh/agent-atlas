@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -214,6 +215,10 @@ func (s *Scenario) Validate() error {
 					add("agent %s script[%d]: MCP server %s has no tool %q", a.ID, i, st.Tool.Server, st.Tool.Name)
 				case srv.Tool(st.Tool.Name).Write != (st.Tool.Expect == "denied"):
 					add("agent %s script[%d]: write tools must be called with expect: denied, others without", a.ID, i)
+				default:
+					for _, p := range CheckArgs(srv.Tool(st.Tool.Name), st.Tool.Args) {
+						add("agent %s script[%d]: %s: %s", a.ID, i, st.Tool.Name, p)
+					}
 				}
 			case "resource":
 				srv := s.MCPServer(st.Resource.Server)
@@ -440,4 +445,57 @@ func (s *Scenario) validateMCP(add func(string, ...any), seen map[string]bool) {
 	if writes != 1 {
 		add("exactly one MCP write tool (have %d)", writes)
 	}
+}
+
+// CheckArgs compares scripted tool arguments with the tool's parameters: every
+// parameter is required, no unknown arguments, enum values and numeric types
+// must fit. Values containing a {{template}} are filled in at run time and
+// only checked for presence.
+func CheckArgs(t *MCPTool, args map[string]any) []string {
+	var out []string
+	known := map[string]MCPParam{}
+	for _, p := range t.Params {
+		known[p.Name] = p
+		if _, ok := args[p.Name]; !ok {
+			out = append(out, fmt.Sprintf("missing argument %q", p.Name))
+		}
+	}
+	names := make([]string, 0, len(args))
+	for k := range args {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, k := range names {
+		p, ok := known[k]
+		if !ok {
+			out = append(out, fmt.Sprintf("unknown argument %q", k))
+			continue
+		}
+		v := args[k]
+		if str, isStr := v.(string); isStr && strings.Contains(str, "{{") {
+			continue
+		}
+		switch p.Type {
+		case "integer":
+			switch n := v.(type) {
+			case int, int64:
+			case float64:
+				if n != float64(int64(n)) {
+					out = append(out, fmt.Sprintf("argument %q must be an integer", k))
+				}
+			default:
+				out = append(out, fmt.Sprintf("argument %q must be an integer", k))
+			}
+		case "number":
+			switch v.(type) {
+			case int, int64, float64:
+			default:
+				out = append(out, fmt.Sprintf("argument %q must be a number", k))
+			}
+		}
+		if len(p.Enum) > 0 && !slices.Contains(p.Enum, fmt.Sprint(v)) {
+			out = append(out, fmt.Sprintf("argument %q must be one of %v", k, p.Enum))
+		}
+	}
+	return out
 }
