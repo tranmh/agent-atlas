@@ -97,4 +97,42 @@ describe("ReplayEngine", () => {
     e.load([ev(1, 1000), ev(2, 2000), ev(3, 3000), ev(4, 4000)]);
     expect(e.window(2000, 3000).map((x) => x.id)).toEqual([2, 3]);
   });
+
+  // Review W1: events sharing a millisecond must each be a step.
+  it("steps through events that share a millisecond", () => {
+    const e = new ReplayEngine(recordFold);
+    e.load([ev(1, 1000), ev(2, 1000), ev(3, 2000)]);
+    const fwd: number[] = [];
+    for (let x = e.stepForward(); x; x = e.stepForward()) fwd.push(x.id);
+    expect(fwd).toEqual([1, 2, 3]);
+    const back: number[] = [];
+    for (let x = e.stepBack(); x; x = e.stepBack()) back.push(x.id);
+    expect(back).toEqual([2, 1]);
+  });
+
+  it("folds exactly up to the stepped event, not its same-millisecond siblings", () => {
+    const e = new ReplayEngine(recordFold);
+    e.load([ev(1, 1000), ev(2, 1000), ev(3, 2000)]);
+    e.stepForward();
+    expect(e.state().ids).toEqual([1]);
+    e.tick(5000); // paused: the step position holds
+    expect(e.state().ids).toEqual([1]);
+    e.stepForward();
+    expect(e.state().ids).toEqual([1, 2]);
+  });
+
+  // Review W3: Play after an empty pause must reach events that arrive later.
+  it("plays into events that arrive after an empty pause", () => {
+    const e = new ReplayEngine(recordFold);
+    e.load([], "live");
+    const now = 1_700_000_000_000;
+    e.tick(now);
+    e.pause();
+    e.play();
+    e.tick(now + 16);
+    e.append([ev(1, now + 2000), ev(2, now + 3000)], now + 2100);
+    e.play();
+    for (let t = now + 2200; t < now + 10_000; t += 16) e.tick(t);
+    expect(e.getSnapshot().cursor).toBeGreaterThanOrEqual(0);
+  });
 });
