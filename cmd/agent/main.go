@@ -69,11 +69,11 @@ func main() {
 	}
 
 	h := agent.NewHandler(agent.Config{
-		Scenario:         sc,
-		Agent:            a,
-		PublicURL:        httpx.GetEnv("AGENT_PUBLIC_URL", fmt.Sprintf("http://%s:%d", id, port)),
-		Emit:             reporter,
-		LLM:              chatter,
+		Scenario:  sc,
+		Agent:     a,
+		PublicURL: httpx.GetEnv("AGENT_PUBLIC_URL", fmt.Sprintf("http://%s:%d", id, port)),
+		Emit:      reporter,
+		LLM:       chatter,
 		MCP: &mcpx.Client{
 			GatewayURL:   httpx.GetEnv("MCP_GATEWAY_URL", "http://agentgateway:3000"),
 			Emit:         reporter,
