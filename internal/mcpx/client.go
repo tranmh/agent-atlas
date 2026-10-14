@@ -100,7 +100,7 @@ func (c *Client) Open(ctx context.Context, call Call) (*Session, error) {
 		MaxRetries:           -1,
 	}, nil)
 	if err != nil {
-		if tr.denied() {
+		if isDenied(err) {
 			return nil, fmt.Errorf("%w: %v", ErrDenied, err)
 		}
 		return nil, err
@@ -136,7 +136,7 @@ func (s *Session) CallTool(ctx context.Context, name string, args map[string]any
 	p := &mcp.CallToolParams{Name: name, Arguments: args}
 	p.SetProgressToken(newID())
 	res, err := s.cs.CallTool(ctx, p)
-	if err != nil && s.tr.denied() {
+	if err != nil && isDenied(err) {
 		return nil, fmt.Errorf("%w: %v", ErrDenied, err)
 	}
 	return res, err
@@ -191,11 +191,17 @@ type transport struct {
 	emit  events.Emitter
 	limit int
 	call  Call
-
-	lastDenied bool
 }
 
-func (t *transport) denied() bool { return t.lastDenied }
+// isDenied classifies the error of one call: the gateway refuses a write tool
+// with HTTP 400 "Unknown tool" (the MCP policy hides it) and a foreign caller
+// with 403. The SDK keeps both in the error it returns for that very request,
+// so no state is shared between requests (calls and the SDK's own
+// notifications run on different goroutines).
+func isDenied(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "Unknown tool") || strings.Contains(msg, http.StatusText(http.StatusForbidden))
+}
 
 type rpc struct {
 	ID     json.RawMessage `json:"id"`
@@ -267,13 +273,11 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	t.lastDenied = false
 	if resp.StatusCode == http.StatusForbidden || (resp.StatusCode == http.StatusBadRequest && r.Method == "tools/call") {
 		raw, _ := wire.BufferResponse(resp, 64<<10)
 		var er rpc
 		_ = json.Unmarshal(raw, &er)
 		if resp.StatusCode == http.StatusForbidden || (er.Error != nil && strings.Contains(er.Error.Message, "Unknown tool")) {
-			t.lastDenied = true
 			d := t.event(events.KindMCPDenied, "agentgateway", t.call.Caller)
 			d.Method, d.Corr, d.HTTPStatus, d.DurationMS = r.Method, corr, resp.StatusCode, time.Since(start).Milliseconds()
 			if resp.StatusCode == http.StatusForbidden {
