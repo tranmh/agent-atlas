@@ -80,3 +80,15 @@ tail-events: ## Follow the live event stream as one line per event
 .PHONY: clean-sessions
 clean-sessions: ## Delete recorded sessions (data/sessions/*.jsonl)
 	rm -f data/sessions/*.jsonl
+
+.PHONY: web-dev
+web-dev: ## Run the web app with hot reload on :3001 against the running stack
+	cd web && npm run dev -- -p 3001
+
+.PHONY: web-fixtures
+web-fixtures: ## Run the web app on :3001 replaying the bundled sample (no backend)
+	cd web && NEXT_PUBLIC_USE_FIXTURES=1 npm run dev -- -p 3001
+
+.PHONY: record-sample
+record-sample: ## Record web/public/samples/demo.jsonl: all 5 scenarios with chaos (stack must be up)
+	@./scripts/record-sample.sh

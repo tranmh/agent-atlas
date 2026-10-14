@@ -15,7 +15,7 @@ func TestGeneratedFilesAreFresh(t *testing.T) {
 	files, err := Generate()
 	require.NoError(t, err)
 	for path, content := range files {
-		var v map[string]any
+		var v any
 		require.NoError(t, yaml.Unmarshal(content, &v), path)
 		disk, err := os.ReadFile(filepath.Join("..", "..", path))
 		require.NoError(t, err)

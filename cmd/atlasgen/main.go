@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -19,6 +20,8 @@ import (
 const (
 	GatewayConfigPath = "deploy/agentgateway/config.yaml"
 	ComposeAgentsPath = "compose.agents.yml"
+	// ScenariosJSONPath is what the browser loads in fixtures mode (no backend).
+	ScenariosJSONPath = "web/public/samples/scenarios.json"
 )
 
 func main() {
@@ -60,6 +63,11 @@ func Generate() (map[string][]byte, error) {
 		return nil, err
 	}
 	out := map[string][]byte{}
+	js, err := json.MarshalIndent(cat.Scenarios, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	out[ScenariosJSONPath] = append(js, '\n')
 	for path, tmpl := range map[string]*template.Template{GatewayConfigPath: gatewayTmpl, ComposeAgentsPath: composeTmpl} {
 		var b bytes.Buffer
 		if err := tmpl.Execute(&b, cat); err != nil {

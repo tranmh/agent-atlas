@@ -7,11 +7,12 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
 | M0 | Scaffolding: go.mod, copied helpers, Makefile, web skeleton, docs | done | c0cc234 |
 | M1 | agentgateway + hello agent, card rewrite verified | done | 3091f7d |
 | M2 | scenario schema, generator, scripted executor | done | 2ef8ab9 |
-| M3 | orchestrator, event log, visualizer SSE | done | (this commit) |
-| M4 | map, arcs, panels, replay | open | |
+| M3 | orchestrator, event log, visualizer SSE | done | c41c3ec |
+| M4 | map, arcs, panels, replay | done | (this commit) |
 | M5 | gateway policies, Jaeger, gateway view | open | |
 | M6 | Ollama + LLM agents through the gateway | open | |
 | M7 | all scenarios, e2e, screenshots, README | open | |
+| M8 | Fable code review; critical/high findings fixed test-first (red commit, then green commit) | open | |
 
 ## Deviations from the plan
 
@@ -39,6 +40,14 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
 - agentgateway moved into the generated `compose.agents.yml`: it caches backend addresses, so it must
   restart when agent containers are recreated (`depends_on: {condition: service_healthy, restart: true}`).
   After recreating a single agent by hand, run `docker compose restart agentgateway`.
+
+- The gateway is drawn as a hub floating at the top of the map, not at a geographic place: every A2A
+  and LLM call visibly goes up into it and back down; push notifications bypass it. Flights are drawn on
+  one canvas per frame (not Leaflet polylines). The default base map is the bundled Natural Earth
+  110m outline (offline, public domain); OpenStreetMap tiles are an opt-in toggle.
+- Events are ordered by `produced_ts` (producer clock; all containers share the host clock), not by
+  receipt. Live mode plays 1.5 s behind real time so late batches still land in order.
+- Zoom buttons (World, Europe, Central EU) were added: 18 of the 30 pins are in Europe.
 
 ## Verified facts (M1 spike, agentgateway v1.6.0 + a2a-go v2.6.0)
 

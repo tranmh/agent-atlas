@@ -1,0 +1,1332 @@
+[
+  {
+    "id": "export-order",
+    "code": "ex",
+    "title": "Export order \u0026 customs",
+    "summary": "A paper mill in Canada orders a refiner. The Sales Hub in Vienna checks credit, export control, customs and shipping. Hazardous cargo needs a human decision.",
+    "color": "#eda100",
+    "orchestrator": {
+      "id": "ex-orchestrator",
+      "name": "Sales Hub",
+      "description": "Turns customer orders into delivered goods.",
+      "city": "Vienna",
+      "country": "AT",
+      "lat": 48.2082,
+      "lon": 16.3738
+    },
+    "agents": [
+      {
+        "id": "ex-credit-check",
+        "name": "Credit Check",
+        "description": "Rates the customer's credit risk.",
+        "city": "Vienna",
+        "country": "AT",
+        "lat": 48.2082,
+        "lon": 16.3738,
+        "feature": "streaming",
+        "mode": "llm",
+        "skills": [
+          {
+            "id": "assess-credit",
+            "name": "Assess credit",
+            "description": "Rate a customer's payment risk",
+            "tags": [
+              "finance"
+            ]
+          }
+        ],
+        "llm": {
+          "system": "You are a credit analyst for industrial equipment exports. Answer in at most three short sentences.",
+          "max_tokens": 160
+        },
+        "script": [
+          {
+            "say": "Fetching payment history of Laurentide Paper Inc…",
+            "wait": 2500
+          },
+          {
+            "say": "Checking credit insurer limits…",
+            "wait": 2500
+          },
+          {
+            "llm": "Customer order: {{request}}. Payment history: 14 invoices, all paid within 35 days. Insurer limit 6 M EUR. Give a short credit verdict.",
+            "fallback": "Low risk: all 14 invoices paid on time and the order is within the insurer limit. Approve with standard terms."
+          },
+          {
+            "artifact": {
+              "name": "credit",
+              "data": {
+                "limit_eur": 6000000,
+                "rating": "A-",
+                "terms": "30 days net"
+              }
+            }
+          },
+          {
+            "complete": "Credit approved."
+          }
+        ]
+      },
+      {
+        "id": "ex-export-control",
+        "name": "Export Control",
+        "description": "Screens goods and end users against export regulations.",
+        "city": "Brussels",
+        "country": "BE",
+        "lat": 50.8503,
+        "lon": 4.3517,
+        "feature": "multi_turn",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "screen-export",
+            "name": "Screen export",
+            "description": "Check goods and end user",
+            "tags": [
+              "compliance"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Classifying the refiner under EU dual-use rules…",
+            "wait": 2500
+          },
+          {
+            "input_required": "Please provide the end-user certificate number."
+          },
+          {
+            "say": "Validating certificate {{input}}…",
+            "wait": 2500
+          },
+          {
+            "artifact": {
+              "name": "clearance",
+              "data": {
+                "classification": "not dual-use",
+                "licence": "none required"
+              }
+            }
+          },
+          {
+            "complete": "Export cleared."
+          }
+        ]
+      },
+      {
+        "id": "ex-customs",
+        "name": "Customs Broker",
+        "description": "Files export and import declarations. Takes a while; reports by push notification.",
+        "city": "Rotterdam",
+        "country": "NL",
+        "lat": 51.9244,
+        "lon": 4.4777,
+        "feature": "long_task_push",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "file-customs",
+            "name": "File customs",
+            "description": "Prepare export and import declarations",
+            "tags": [
+              "customs"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Drafting the EU export declaration…",
+            "wait": 3000
+          },
+          {
+            "say": "Submitting to Dutch customs…",
+            "wait": 3000
+          },
+          {
+            "say": "Waiting for release from customs…",
+            "wait": 3000
+          },
+          {
+            "say": "Pre-filing the Canadian import declaration…",
+            "wait": 3000
+          },
+          {
+            "artifact": {
+              "name": "declaration",
+              "data": {
+                "mrn": "26NL0000000123456",
+                "status": "released"
+              }
+            }
+          },
+          {
+            "complete": "Customs released."
+          }
+        ]
+      },
+      {
+        "id": "ex-shipping",
+        "name": "Shipping",
+        "description": "Books ocean freight. Hazardous cargo needs a human decision.",
+        "city": "Singapore",
+        "country": "SG",
+        "lat": 1.3521,
+        "lon": 103.8198,
+        "feature": "restricted",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "book-freight",
+            "name": "Book freight",
+            "description": "Book ocean freight",
+            "tags": [
+              "shipping"
+            ]
+          },
+          {
+            "id": "restricted-hazardous-cargo",
+            "name": "Ship hazardous cargo",
+            "description": "Declare dangerous goods (humans only)",
+            "tags": [
+              "shipping",
+              "critical"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Searching sailings Rotterdam → Montreal…",
+            "wait": 2500
+          },
+          {
+            "artifact": {
+              "name": "booking",
+              "data": {
+                "container": "40ft HC",
+                "departs": "in 5 days",
+                "vessel": "MSC Aurora"
+              }
+            }
+          },
+          {
+            "complete": "Freight booked."
+          }
+        ]
+      }
+    ],
+    "plan": [
+      {
+        "step": "credit",
+        "agent": "ex-credit-check",
+        "call": "stream",
+        "skill": "assess-credit",
+        "text": "Order 88-1203: TwinFlo refiner for Laurentide Paper Inc, Trois-Rivières, 4.2 M EUR",
+        "say": "Sales Hub streams a credit check."
+      },
+      {
+        "step": "export",
+        "agent": "ex-export-control",
+        "call": "send",
+        "skill": "screen-export",
+        "text": "Screen TwinFlo refiner, end user Laurentide Paper Inc, Canada",
+        "say": "Sales Hub asks Export Control for clearance.",
+        "reply": "EUC-CA-2026-7781"
+      },
+      {
+        "step": "customs",
+        "agent": "ex-customs",
+        "call": "push",
+        "skill": "file-customs",
+        "text": "File export and import declarations for order 88-1203",
+        "say": "Sales Hub hands customs to the broker and waits for a push notification."
+      },
+      {
+        "step": "hazmat",
+        "agent": "ex-shipping",
+        "call": "send",
+        "skill": "restricted-hazardous-cargo",
+        "text": "Declare the refiner's lubricant drums as dangerous goods",
+        "say": "Sales Hub tries to declare hazardous cargo. The gateway policy should refuse it.",
+        "expect": "denied"
+      },
+      {
+        "step": "freight",
+        "agent": "ex-shipping",
+        "call": "send",
+        "skill": "book-freight",
+        "text": "Book ocean freight Rotterdam → Montreal, one 40ft container",
+        "say": "Sales Hub books regular freight.",
+        "parallel": true
+      }
+    ],
+    "closing": "Order 88-1203 ready to ship."
+  },
+  {
+    "id": "expert-finder",
+    "code": "kh",
+    "title": "Global expert finder",
+    "summary": "An engineer in Pohang asks a technical question. The knowledge hub in Graz searches documents, matches an expert and translates the answer. Salary data stays behind the HR policy.",
+    "color": "#1baf7a",
+    "orchestrator": {
+      "id": "kh-orchestrator",
+      "name": "Knowledge Hub",
+      "description": "Connects questions with documents and people.",
+      "city": "Graz",
+      "country": "AT",
+      "lat": 47.0707,
+      "lon": 15.4395
+    },
+    "agents": [
+      {
+        "id": "kh-doc-search",
+        "name": "Document Search",
+        "description": "Searches manuals and reports and drafts an answer.",
+        "city": "Graz",
+        "country": "AT",
+        "lat": 47.0707,
+        "lon": 15.4395,
+        "feature": "streaming",
+        "mode": "llm",
+        "skills": [
+          {
+            "id": "search-docs",
+            "name": "Search documents",
+            "description": "Search and draft an answer",
+            "tags": [
+              "knowledge"
+            ]
+          }
+        ],
+        "llm": {
+          "system": "You are a senior metals process engineer. Answer in at most three short sentences.",
+          "max_tokens": 160
+        },
+        "script": [
+          {
+            "say": "Searching 48 000 manuals and service reports…",
+            "wait": 2500
+          },
+          {
+            "say": "Ranking 19 relevant passages…",
+            "wait": 2500
+          },
+          {
+            "llm": "Question from a steel plant engineer: {{request}}. Relevant finding: strip edge cracks rose after the coolant flow was reduced by 15 %. Draft a short answer.",
+            "fallback": "Edge cracks after a coolant reduction usually come from uneven strip cooling. Restore the coolant flow and check the edge sprays."
+          },
+          {
+            "artifact": {
+              "name": "answer-draft",
+              "data": {
+                "confidence": 0.74,
+                "sources": 3
+              }
+            }
+          },
+          {
+            "complete": "Answer drafted."
+          }
+        ]
+      },
+      {
+        "id": "kh-expert-match",
+        "name": "Expert Matching",
+        "description": "Finds the right colleague for a question.",
+        "city": "Vienna",
+        "country": "AT",
+        "lat": 48.2082,
+        "lon": 16.3738,
+        "feature": "multi_turn",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "match-expert",
+            "name": "Match expert",
+            "description": "Find a colleague who can help",
+            "tags": [
+              "people"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Matching the question against 1 200 expert profiles…",
+            "wait": 2500
+          },
+          {
+            "input_required": "How urgent is it: today, this week, or this month?"
+          },
+          {
+            "say": "Looking for experts available {{input}}…",
+            "wait": 2500
+          },
+          {
+            "artifact": {
+              "name": "expert",
+              "data": {
+                "expert": "Dr. Maria Hofer",
+                "field": "cold rolling",
+                "slot": "today 15:00 CET"
+              }
+            }
+          },
+          {
+            "complete": "Expert found."
+          }
+        ]
+      },
+      {
+        "id": "kh-translation",
+        "name": "Translation",
+        "description": "Translates technical answers. Takes a while; reports by push notification.",
+        "city": "Tokyo",
+        "country": "JP",
+        "lat": 35.6762,
+        "lon": 139.6503,
+        "feature": "long_task_push",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "translate",
+            "name": "Translate",
+            "description": "Translate a technical text",
+            "tags": [
+              "language"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Extracting technical terms…",
+            "wait": 3000
+          },
+          {
+            "say": "Translating English → Korean…",
+            "wait": 3000
+          },
+          {
+            "say": "Terminology review…",
+            "wait": 3000
+          },
+          {
+            "artifact": {
+              "name": "translation",
+              "data": {
+                "language": "ko",
+                "words": 212
+              }
+            }
+          },
+          {
+            "complete": "Translation ready."
+          }
+        ]
+      },
+      {
+        "id": "kh-hr-directory",
+        "name": "HR Directory",
+        "description": "Looks up colleagues. Salary data is restricted.",
+        "city": "Graz",
+        "country": "AT",
+        "lat": 47.0707,
+        "lon": 15.4395,
+        "feature": "restricted",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "lookup-contact",
+            "name": "Look up contact",
+            "description": "Business contact details",
+            "tags": [
+              "people"
+            ]
+          },
+          {
+            "id": "restricted-salary-lookup",
+            "name": "Salary lookup",
+            "description": "Salary data (HR only)",
+            "tags": [
+              "people",
+              "critical"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Looking up the business contact…",
+            "wait": 2000
+          },
+          {
+            "artifact": {
+              "name": "contact",
+              "data": {
+                "name": "Dr. Maria Hofer",
+                "phone": "+43 316 6902 0",
+                "teams": "maria.hofer"
+              }
+            }
+          },
+          {
+            "complete": "Contact found."
+          }
+        ]
+      }
+    ],
+    "plan": [
+      {
+        "step": "search",
+        "agent": "kh-doc-search",
+        "call": "stream",
+        "skill": "search-docs",
+        "text": "Why do edge cracks appear on cold-rolled strip after we reduced the coolant flow? (Pohang plant)",
+        "say": "Knowledge Hub streams the document search."
+      },
+      {
+        "step": "expert",
+        "agent": "kh-expert-match",
+        "call": "send",
+        "skill": "match-expert",
+        "text": "Find an expert in cold rolling and strip cooling",
+        "say": "Knowledge Hub asks for a matching expert.",
+        "reply": "today"
+      },
+      {
+        "step": "translate",
+        "agent": "kh-translation",
+        "call": "push",
+        "skill": "translate",
+        "text": "Translate the answer draft to Korean",
+        "say": "Knowledge Hub sends the answer for translation and waits for a push notification."
+      },
+      {
+        "step": "salary",
+        "agent": "kh-hr-directory",
+        "call": "send",
+        "skill": "restricted-salary-lookup",
+        "text": "What is Dr. Hofer's salary band?",
+        "say": "Knowledge Hub asks for salary data. The gateway policy should refuse it.",
+        "expect": "denied"
+      },
+      {
+        "step": "contact",
+        "agent": "kh-hr-directory",
+        "call": "send",
+        "skill": "lookup-contact",
+        "text": "Business contact of Dr. Maria Hofer",
+        "say": "Knowledge Hub looks up the business contact.",
+        "parallel": true
+      }
+    ],
+    "closing": "Question answered, expert connected."
+  },
+  {
+    "id": "predictive-maintenance",
+    "code": "pm",
+    "title": "Predictive maintenance",
+    "summary": "A pulp mill in Finland shows a vibration anomaly on a refiner. The Monitoring Center in Graz analyses the signal, plans a maintenance window and orders parts. Writing to the PLC remotely is refused.",
+    "color": "#008300",
+    "orchestrator": {
+      "id": "pm-orchestrator",
+      "name": "Monitoring Center",
+      "description": "Watches machine data and starts maintenance before machines fail.",
+      "city": "Graz",
+      "country": "AT",
+      "lat": 47.0707,
+      "lon": 15.4395
+    },
+    "agents": [
+      {
+        "id": "pm-signal-analysis",
+        "name": "Signal Analysis",
+        "description": "Analyses vibration spectra and suggests a root cause.",
+        "city": "Graz",
+        "country": "AT",
+        "lat": 47.0707,
+        "lon": 15.4395,
+        "feature": "streaming",
+        "mode": "llm",
+        "skills": [
+          {
+            "id": "analyze-signal",
+            "name": "Analyze signal",
+            "description": "Explain a vibration anomaly",
+            "tags": [
+              "analytics"
+            ]
+          }
+        ],
+        "llm": {
+          "system": "You are a vibration analysis expert for pulp and paper refiners. Answer in at most three short sentences.",
+          "max_tokens": 160
+        },
+        "script": [
+          {
+            "say": "Loading 72 h of vibration data from Äänekoski…",
+            "wait": 2500
+          },
+          {
+            "say": "Computing FFT spectrum…",
+            "wait": 2500
+          },
+          {
+            "say": "Peak found at 2× rotation frequency…",
+            "wait": 2000
+          },
+          {
+            "llm": "Refiner anomaly: {{request}}. The spectrum shows a growing peak at twice the rotation frequency and rising axial vibration. Give the most likely root cause.",
+            "fallback": "A peak at 2× rotation frequency with axial vibration points to shaft misalignment. Realign the motor coupling."
+          },
+          {
+            "artifact": {
+              "name": "analysis",
+              "data": {
+                "confidence": 0.81,
+                "remaining_days": 12,
+                "root_cause": "shaft misalignment"
+              }
+            }
+          },
+          {
+            "complete": "Root cause: shaft misalignment."
+          }
+        ]
+      },
+      {
+        "id": "pm-planner",
+        "name": "Maintenance Planner",
+        "description": "Fits maintenance into the production plan.",
+        "city": "Helsinki",
+        "country": "FI",
+        "lat": 60.1699,
+        "lon": 24.9384,
+        "feature": "multi_turn",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "plan-maintenance",
+            "name": "Plan maintenance",
+            "description": "Find a maintenance window",
+            "tags": [
+              "planning"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Reading the production plan of the mill…",
+            "wait": 2500
+          },
+          {
+            "input_required": "Two windows are possible: Tuesday night or Saturday morning. Which one?"
+          },
+          {
+            "say": "Blocking {{input}} in the production plan…",
+            "wait": 2500
+          },
+          {
+            "artifact": {
+              "name": "window",
+              "data": {
+                "crew": 3,
+                "duration_h": 6
+              }
+            }
+          },
+          {
+            "complete": "Maintenance window booked."
+          }
+        ]
+      },
+      {
+        "id": "pm-parts",
+        "name": "Parts \u0026 Logistics",
+        "description": "Sources parts from the regional hub. Long-running; reports by push notification.",
+        "city": "Shanghai",
+        "country": "CN",
+        "lat": 31.2304,
+        "lon": 121.4737,
+        "feature": "long_task_push",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "source-parts",
+            "name": "Source parts",
+            "description": "Source and ship parts",
+            "tags": [
+              "logistics"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Checking the coupling kit in the Shanghai hub…",
+            "wait": 3000
+          },
+          {
+            "say": "Kit found, packing…",
+            "wait": 3000
+          },
+          {
+            "say": "Booking express air freight to Helsinki…",
+            "wait": 3000
+          },
+          {
+            "say": "Handing over to the courier…",
+            "wait": 3000
+          },
+          {
+            "artifact": {
+              "name": "parts",
+              "data": {
+                "awb": "781-22004410",
+                "eta_days": 4,
+                "kit": "coupling alignment kit"
+              }
+            }
+          },
+          {
+            "complete": "Parts on the way."
+          }
+        ]
+      },
+      {
+        "id": "pm-remote",
+        "name": "Remote Intervention",
+        "description": "Changes machine set points remotely. Writing to a PLC needs a human decision.",
+        "city": "Äänekoski",
+        "country": "FI",
+        "lat": 62.6046,
+        "lon": 25.7263,
+        "feature": "restricted",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "read-setpoints",
+            "name": "Read set points",
+            "description": "Read machine set points",
+            "tags": [
+              "remote"
+            ]
+          },
+          {
+            "id": "restricted-plc-write",
+            "name": "Write PLC",
+            "description": "Change PLC set points (humans only)",
+            "tags": [
+              "remote",
+              "critical"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Connecting to the refiner controller (read-only)…",
+            "wait": 2500
+          },
+          {
+            "artifact": {
+              "name": "setpoints",
+              "data": {
+                "load_mw": 11.8,
+                "plate_gap_mm": 0.42,
+                "speed_rpm": 1500
+              }
+            }
+          },
+          {
+            "complete": "Set points read."
+          }
+        ]
+      }
+    ],
+    "plan": [
+      {
+        "step": "analyze",
+        "agent": "pm-signal-analysis",
+        "call": "stream",
+        "skill": "analyze-signal",
+        "text": "Refiner RF02 at Äänekoski: vibration up 35 % in 72 h",
+        "say": "Monitoring Center streams the signal analysis."
+      },
+      {
+        "step": "plan",
+        "agent": "pm-planner",
+        "call": "send",
+        "skill": "plan-maintenance",
+        "text": "Plan a 6 h maintenance window for RF02 within 10 days",
+        "say": "Monitoring Center asks the planner for a window.",
+        "reply": "Saturday morning"
+      },
+      {
+        "step": "parts",
+        "agent": "pm-parts",
+        "call": "push",
+        "skill": "source-parts",
+        "text": "Ship a coupling alignment kit to Äänekoski",
+        "say": "Monitoring Center orders parts and waits for a push notification."
+      },
+      {
+        "step": "slowdown",
+        "agent": "pm-remote",
+        "call": "send",
+        "skill": "restricted-plc-write",
+        "text": "Reduce RF02 load to 8 MW until maintenance",
+        "say": "Monitoring Center tries to write the PLC. The gateway policy should refuse it.",
+        "expect": "denied"
+      },
+      {
+        "step": "read",
+        "agent": "pm-remote",
+        "call": "send",
+        "skill": "read-setpoints",
+        "text": "Read RF02 set points",
+        "say": "Monitoring Center reads the set points instead.",
+        "parallel": true
+      }
+    ],
+    "closing": "RF02 maintenance planned before failure."
+  },
+  {
+    "id": "service-case",
+    "code": "sc",
+    "title": "ANDRITZ service case",
+    "summary": "A hydro plant in Brazil reports a bearing alarm on turbine T3. The Service Desk in Göppingen delegates diagnosis, spare parts, shipping and a field visit to specialist agents.",
+    "color": "#2a78d6",
+    "orchestrator": {
+      "id": "sc-orchestrator",
+      "name": "Service Desk",
+      "description": "Receives service tickets and delegates the work to specialist agents.",
+      "city": "Göppingen",
+      "country": "DE",
+      "lat": 48.7026,
+      "lon": 9.6527
+    },
+    "agents": [
+      {
+        "id": "sc-diagnosis",
+        "name": "Diagnosis",
+        "description": "Reads fault memory and vibration data and names the likely fault.",
+        "city": "Göppingen",
+        "country": "DE",
+        "lat": 48.7026,
+        "lon": 9.6527,
+        "feature": "streaming",
+        "mode": "llm",
+        "skills": [
+          {
+            "id": "analyze-fault",
+            "name": "Analyze fault memory",
+            "description": "Diagnose a machine alarm",
+            "tags": [
+              "diagnosis"
+            ]
+          }
+        ],
+        "llm": {
+          "system": "You are a hydro turbine diagnostics engineer. Answer in at most three short sentences.",
+          "max_tokens": 160
+        },
+        "script": [
+          {
+            "say": "Reading fault memory of turbine T3…",
+            "wait": 2500
+          },
+          {
+            "say": "Correlating bearing temperature with vibration data…",
+            "wait": 2500
+          },
+          {
+            "say": "Comparing with 312 similar cases…",
+            "wait": 2000
+          },
+          {
+            "llm": "A hydro turbine reports: {{request}}. Bearing B3 runs 18 K above normal and vibration rose 40 % in two weeks. What is the most likely fault and the next action?",
+            "fallback": "Most likely fault: bearing B3 overheating from lubrication loss. Replace the bearing and check the oil circuit."
+          },
+          {
+            "artifact": {
+              "name": "diagnosis",
+              "data": {
+                "confidence": 0.87,
+                "fault": "bearing B3 overheating",
+                "part": "SKF 23148"
+              }
+            }
+          },
+          {
+            "complete": "Diagnosis complete: bearing B3 must be replaced."
+          }
+        ]
+      },
+      {
+        "id": "sc-spare-parts",
+        "name": "Spare Parts",
+        "description": "Checks bills of materials and warehouse stock.",
+        "city": "Rotterdam",
+        "country": "NL",
+        "lat": 51.9244,
+        "lon": 4.4777,
+        "feature": "multi_turn",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "find-part",
+            "name": "Find spare part",
+            "description": "Locate a part in the central warehouse",
+            "tags": [
+              "parts"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Looking up the bill of materials for turbine T3…",
+            "wait": 2000
+          },
+          {
+            "input_required": "Which machine serial number is affected? Two bearing variants exist for T3."
+          },
+          {
+            "say": "Serial {{input}} uses bearing SKF 23148. Checking stock…",
+            "wait": 2500
+          },
+          {
+            "say": "Reserving one unit in the Rotterdam warehouse…",
+            "wait": 2000
+          },
+          {
+            "artifact": {
+              "name": "reservation",
+              "data": {
+                "part": "SKF 23148",
+                "reserved": 1,
+                "stock": 3,
+                "warehouse": "Rotterdam"
+              }
+            }
+          },
+          {
+            "complete": "One SKF 23148 reserved."
+          }
+        ]
+      },
+      {
+        "id": "sc-logistics",
+        "name": "Logistics",
+        "description": "Books freight and tracks shipments. Long-running work, reported by push notification.",
+        "city": "Singapore",
+        "country": "SG",
+        "lat": 1.3521,
+        "lon": 103.8198,
+        "feature": "long_task_push",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "ship-part",
+            "name": "Ship part",
+            "description": "Book express freight to a plant",
+            "tags": [
+              "logistics"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Requesting express freight quotes…",
+            "wait": 3000
+          },
+          {
+            "say": "Three carriers answered, choosing the fastest…",
+            "wait": 3000
+          },
+          {
+            "say": "Booking air freight Rotterdam → São Paulo…",
+            "wait": 3000
+          },
+          {
+            "say": "Preparing customs documents for Brazil…",
+            "wait": 3000
+          },
+          {
+            "say": "Arranging truck São Paulo → Foz do Iguaçu…",
+            "wait": 3000
+          },
+          {
+            "artifact": {
+              "name": "shipment",
+              "data": {
+                "awb": "176-55512344",
+                "carrier": "AirCargo Express",
+                "eta_days": 3
+              }
+            }
+          },
+          {
+            "complete": "Shipment booked, arrives in 3 days."
+          }
+        ]
+      },
+      {
+        "id": "sc-field-service",
+        "name": "Field Service",
+        "description": "Schedules technicians on site. Plant shutdowns need a human decision.",
+        "city": "Foz do Iguaçu",
+        "country": "BR",
+        "lat": -25.5163,
+        "lon": -54.5854,
+        "feature": "restricted",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "schedule-visit",
+            "name": "Schedule visit",
+            "description": "Book a technician visit",
+            "tags": [
+              "field"
+            ]
+          },
+          {
+            "id": "restricted-shutdown-plant",
+            "name": "Shut down plant",
+            "description": "Remote shutdown (humans only)",
+            "tags": [
+              "field",
+              "critical"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Checking technician calendars in Paraná…",
+            "wait": 2500
+          },
+          {
+            "say": "Technician Ana Souza is available on Friday…",
+            "wait": 2000
+          },
+          {
+            "artifact": {
+              "name": "visit",
+              "data": {
+                "date": "Friday 08:00",
+                "plant": "Foz do Iguaçu",
+                "technician": "Ana Souza"
+              }
+            }
+          },
+          {
+            "complete": "Visit booked for Friday 08:00."
+          }
+        ]
+      }
+    ],
+    "plan": [
+      {
+        "step": "diagnose",
+        "agent": "sc-diagnosis",
+        "call": "stream",
+        "skill": "analyze-fault",
+        "text": "Ticket #4711: turbine T3 bearing alarm at Foz do Iguaçu",
+        "say": "Service Desk asks Diagnosis to analyse the alarm and watches the stream."
+      },
+      {
+        "step": "parts",
+        "agent": "sc-spare-parts",
+        "call": "send",
+        "skill": "find-part",
+        "text": "Need the bearing SKF 23148 for turbine T3",
+        "say": "Service Desk asks Spare Parts for the bearing.",
+        "reply": "SN-T3-2019-0042"
+      },
+      {
+        "step": "ship",
+        "agent": "sc-logistics",
+        "call": "push",
+        "skill": "ship-part",
+        "text": "Ship one SKF 23148 from Rotterdam to Foz do Iguaçu",
+        "say": "Service Desk hands shipping to Logistics and waits for a push notification."
+      },
+      {
+        "step": "shutdown",
+        "agent": "sc-field-service",
+        "call": "send",
+        "skill": "restricted-shutdown-plant",
+        "text": "Shut down turbine T3 until the part arrives",
+        "say": "Service Desk tries a remote shutdown. The gateway policy should refuse it.",
+        "expect": "denied"
+      },
+      {
+        "step": "visit",
+        "agent": "sc-field-service",
+        "call": "send",
+        "skill": "schedule-visit",
+        "text": "Schedule a technician to replace bearing B3 on turbine T3",
+        "say": "Service Desk books a technician visit instead.",
+        "parallel": true
+      }
+    ],
+    "closing": "Ticket #4711 closed: bearing reserved, shipped, technician booked."
+  },
+  {
+    "id": "travel-booking",
+    "code": "tr",
+    "title": "Business travel booking",
+    "summary": "A traveller in Munich needs a trip to New Delhi. The travel desk books flights and hotel and applies for a visa. Business class is refused by the expense policy agent's route.",
+    "color": "#e87ba4",
+    "orchestrator": {
+      "id": "tr-orchestrator",
+      "name": "Travel Desk",
+      "description": "Plans business trips end to end.",
+      "city": "Munich",
+      "country": "DE",
+      "lat": 48.1351,
+      "lon": 11.582
+    },
+    "agents": [
+      {
+        "id": "tr-flights",
+        "name": "Flights",
+        "description": "Searches flights and writes the itinerary.",
+        "city": "Frankfurt",
+        "country": "DE",
+        "lat": 50.1109,
+        "lon": 8.6821,
+        "feature": "streaming",
+        "mode": "llm",
+        "skills": [
+          {
+            "id": "search-flights",
+            "name": "Search flights",
+            "description": "Find and hold flights",
+            "tags": [
+              "travel"
+            ]
+          }
+        ],
+        "llm": {
+          "system": "You are a corporate travel agent. Answer in at most three short sentences.",
+          "max_tokens": 160
+        },
+        "script": [
+          {
+            "say": "Searching flights Munich → New Delhi…",
+            "wait": 2500
+          },
+          {
+            "say": "Comparing 27 connections…",
+            "wait": 2500
+          },
+          {
+            "llm": "Trip request: {{request}}. Best option: LH762 MUC-DEL 13:05 → 00:20 next day, return AI121 DEL-FRA. Write a two-sentence itinerary summary.",
+            "fallback": "Outbound LH762 Munich to New Delhi on Monday 13:05, arriving 00:20. Return AI121 on Friday via Frankfurt."
+          },
+          {
+            "artifact": {
+              "name": "itinerary",
+              "data": {
+                "cabin": "economy",
+                "hold_hours": 24,
+                "outbound": "LH762",
+                "return": "AI121"
+              }
+            }
+          },
+          {
+            "complete": "Flights on hold for 24 h."
+          }
+        ]
+      },
+      {
+        "id": "tr-hotel",
+        "name": "Hotel",
+        "description": "Books hotels near the destination.",
+        "city": "Munich",
+        "country": "DE",
+        "lat": 48.1351,
+        "lon": 11.582,
+        "feature": "multi_turn",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "book-hotel",
+            "name": "Book hotel",
+            "description": "Book a hotel",
+            "tags": [
+              "travel"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Searching hotels in Gurugram…",
+            "wait": 2500
+          },
+          {
+            "input_required": "Check-in Monday night or Tuesday? The flight lands after midnight."
+          },
+          {
+            "say": "Booking for check-in {{input}}…",
+            "wait": 2500
+          },
+          {
+            "artifact": {
+              "name": "hotel",
+              "data": {
+                "hotel": "Oberoi Gurgaon",
+                "nights": 4
+              }
+            }
+          },
+          {
+            "complete": "Hotel booked."
+          }
+        ]
+      },
+      {
+        "id": "tr-visa",
+        "name": "Visa Service",
+        "description": "Applies for visas. Takes days; reports by push notification.",
+        "city": "New Delhi",
+        "country": "IN",
+        "lat": 28.6139,
+        "lon": 77.209,
+        "feature": "long_task_push",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "apply-visa",
+            "name": "Apply for visa",
+            "description": "Apply for an e-business visa",
+            "tags": [
+              "visa"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Filling in the e-business visa form…",
+            "wait": 3000
+          },
+          {
+            "say": "Uploading passport and invitation letter…",
+            "wait": 3000
+          },
+          {
+            "say": "Paying the visa fee…",
+            "wait": 3000
+          },
+          {
+            "say": "Waiting for the embassy decision…",
+            "wait": 3000
+          },
+          {
+            "artifact": {
+              "name": "visa",
+              "data": {
+                "status": "granted",
+                "type": "e-business visa",
+                "valid_days": 365
+              }
+            }
+          },
+          {
+            "complete": "Visa granted."
+          }
+        ]
+      },
+      {
+        "id": "tr-expense",
+        "name": "Expense Policy",
+        "description": "Approves travel costs within the policy.",
+        "city": "Munich",
+        "country": "DE",
+        "lat": 48.1351,
+        "lon": 11.582,
+        "feature": "restricted",
+        "mode": "scripted",
+        "skills": [
+          {
+            "id": "approve-economy",
+            "name": "Approve economy",
+            "description": "Approve economy travel",
+            "tags": [
+              "expense"
+            ]
+          },
+          {
+            "id": "restricted-business-class",
+            "name": "Approve business class",
+            "description": "Upgrade to business class (managers only)",
+            "tags": [
+              "expense"
+            ]
+          }
+        ],
+        "script": [
+          {
+            "say": "Checking the trip against the travel policy…",
+            "wait": 2500
+          },
+          {
+            "artifact": {
+              "name": "approval",
+              "data": {
+                "approved": true,
+                "budget_eur": 2400
+              }
+            }
+          },
+          {
+            "complete": "Economy trip approved."
+          }
+        ]
+      }
+    ],
+    "plan": [
+      {
+        "step": "flights",
+        "agent": "tr-flights",
+        "call": "stream",
+        "skill": "search-flights",
+        "text": "Trip Munich → New Delhi, Monday to Friday, customer workshop",
+        "say": "Travel Desk streams the flight search."
+      },
+      {
+        "step": "hotel",
+        "agent": "tr-hotel",
+        "call": "send",
+        "skill": "book-hotel",
+        "text": "Hotel near Gurugram for four nights",
+        "say": "Travel Desk asks Hotel for a room.",
+        "reply": "Monday night"
+      },
+      {
+        "step": "visa",
+        "agent": "tr-visa",
+        "call": "push",
+        "skill": "apply-visa",
+        "text": "E-business visa for India, German passport",
+        "say": "Travel Desk applies for the visa and waits for a push notification."
+      },
+      {
+        "step": "upgrade",
+        "agent": "tr-expense",
+        "call": "send",
+        "skill": "restricted-business-class",
+        "text": "Upgrade the long-haul flight to business class",
+        "say": "Travel Desk asks for business class. The gateway policy should refuse it.",
+        "expect": "denied"
+      },
+      {
+        "step": "approve",
+        "agent": "tr-expense",
+        "call": "send",
+        "skill": "approve-economy",
+        "text": "Approve the economy trip, 2 400 EUR",
+        "say": "Travel Desk gets the economy trip approved.",
+        "parallel": true
+      }
+    ],
+    "closing": "Trip to New Delhi booked."
+  }
+]

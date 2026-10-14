@@ -39,3 +39,19 @@ services:
       timeout: 5s
       retries: 12
       start_period: 5s
+
+  web:
+    image: agent-atlas/web:dev
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_VISUALIZER_URL: http://localhost:${VISUALIZER_HOST_PORT:-8095}
+        NEXT_PUBLIC_GATEWAY_URL: http://localhost:${GATEWAY_HOST_PORT:-8000}
+        NEXT_PUBLIC_JAEGER_URL: http://localhost:${JAEGER_HOST_PORT:-16686}
+        NEXT_PUBLIC_GATEWAY_UI_URL: http://localhost:${GATEWAY_UI_HOST_PORT:-15000}/ui
+    restart: on-failure
+    ports:
+      - "${WEB_HOST_PORT:-3000}:3000"
+    depends_on:
+      visualizer:
+        condition: service_healthy
