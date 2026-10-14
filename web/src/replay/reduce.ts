@@ -55,6 +55,8 @@ export interface RunView {
   note?: string;
   steps: Map<string, { state: string; note?: string; agent?: string }>;
   ok: boolean;
+  /** W3C trace id of the run (all gateway spans of the run share it). */
+  traceId?: string;
 }
 
 export interface GateView {
@@ -102,7 +104,8 @@ export function applyEvent(s: ViewState, e: AtlasEvent): void {
   const scenario = e.scenario ?? "";
   switch (e.kind) {
     case "run_started": {
-      s.runs.set(e.run_id ?? "", { runId: e.run_id ?? "", scenario, started: e.t, steps: new Map(), ok: true });
+      const traceId = (e.payload as { trace_id?: unknown } | undefined)?.trace_id;
+      s.runs.set(e.run_id ?? "", { runId: e.run_id ?? "", scenario, started: e.t, steps: new Map(), ok: true, traceId: typeof traceId === "string" ? traceId : undefined });
       // A new run resets the scenario's agents.
       for (const [id, a] of s.agents) {
         if (id.startsWith(scenario + "-")) {

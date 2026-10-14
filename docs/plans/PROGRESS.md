@@ -8,8 +8,8 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
 | M1 | agentgateway + hello agent, card rewrite verified | done | 3091f7d |
 | M2 | scenario schema, generator, scripted executor | done | 2ef8ab9 |
 | M3 | orchestrator, event log, visualizer SSE | done | c41c3ec |
-| M4 | map, arcs, panels, replay | done | (this commit) |
-| M5 | gateway policies, Jaeger, gateway view | open | |
+| M4 | map, arcs, panels, replay | done | 6db95b6 |
+| M5 | gateway policies, Jaeger, gateway view | done | (this commit) |
 | M6 | Ollama + LLM agents through the gateway | open | |
 | M7 | all scenarios, e2e, screenshots, README | open | |
 | M8 | Fable code review; critical/high findings fixed test-first (red commit, then green commit) | open | |
@@ -48,6 +48,11 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
 - Events are ordered by `produced_ts` (producer clock; all containers share the host clock), not by
   receipt. Live mode plays 1.5 s behind real time so late batches still land in order.
 - Zoom buttons (World, Europe, Central EU) were added: 18 of the 30 pins are in Europe.
+
+- One W3C trace per run: the orchestrator sends `traceparent` with the run's trace id on every call and
+  agents pass it on to their LLM call, so Jaeger shows a whole run as one trace (verified: 26 spans for a
+  service-case run, the retried upstream attempt appears twice, the denied call has no upstream span).
+  The payload panel links to it ("whole run in Jaeger").
 
 ## Verified facts (M1 spike, agentgateway v1.6.0 + a2a-go v2.6.0)
 

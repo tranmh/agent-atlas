@@ -26,6 +26,21 @@ type Call struct {
 	Caller   string // orchestrator id, also sent as X-Caller
 	Agent    string // target agent id
 	Chaos    bool   // send X-Chaos: 1
+	TraceID  string // 32 hex chars; every request carries a W3C traceparent in this trace
+}
+
+// NewTraceID returns a random W3C trace id (32 hex chars).
+func NewTraceID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// traceparent builds a W3C traceparent header with a fresh parent span id.
+func traceparent(traceID string) string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return "00-" + traceID + "-" + hex.EncodeToString(b) + "-01"
 }
 
 // Transport reports wire traffic of one orchestrator step.
@@ -70,6 +85,9 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.Header.Set(script.HeaderCaller, t.Call.Caller)
 	if t.Call.Chaos {
 		req.Header.Set(script.HeaderChaos, "1")
+	}
+	if len(t.Call.TraceID) == 32 {
+		req.Header.Set("Traceparent", traceparent(t.Call.TraceID))
 	}
 	corr := NewID()
 	if req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "agent-card.json") {

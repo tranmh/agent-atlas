@@ -60,6 +60,7 @@ func (r *Runner) Executor() a2asrv.AgentExecutor {
 // call is the per-request context of one execution.
 type call struct {
 	runID, caller, step string
+	traceparent         string
 	speed               float64
 	input, request      string
 }
@@ -163,6 +164,9 @@ func (r *Runner) llmStep(ctx context.Context, ec *a2asrv.ExecutorContext, c call
 	r.emit(ec, c, *(&events.Event{Kind: events.KindLLMRequest, To: "llm", Via: events.ViaGateway, Method: "POST /v1/chat/completions",
 		Note: "Asking the model through the gateway's LLM route"}).WithValue(map[string]any{"system": r.Agent.LLM.System, "prompt": prompt}, r.PayloadLimit))
 	headers := map[string]string{HeaderRunID: c.runID, HeaderCaller: r.Agent.ID}
+	if c.traceparent != "" {
+		headers["Traceparent"] = c.traceparent // the LLM call joins the run's trace
+	}
 	cctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	res, err := r.LLM.Chat(cctx, r.Agent.LLM.System, prompt, r.Agent.LLM.MaxTokens, headers)
@@ -190,6 +194,9 @@ func (r *Runner) callInfo(ec *a2asrv.ExecutorContext) call {
 	}
 	if v, ok := ec.ServiceParams.Get(HeaderCaller); ok && len(v) > 0 {
 		c.caller = v[0]
+	}
+	if v, ok := ec.ServiceParams.Get("traceparent"); ok && len(v) > 0 {
+		c.traceparent = v[0]
 	}
 	if ec.Message != nil {
 		md := ec.Message.Metadata

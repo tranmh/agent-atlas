@@ -37,7 +37,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function PayloadPanel({ event, scenarios, onTask }: { event: AtlasEvent | null; scenarios: Scenario[]; onTask: (taskId: string) => void }) {
+export function PayloadPanel({ event, scenarios, onTask, runTraceId }: { event: AtlasEvent | null; scenarios: Scenario[]; onTask: (taskId: string) => void; runTraceId?: string }) {
   if (!event) {
     return <p className="p-4 text-sm text-ink-3">Select an event in the list, or click a moving message on the map, to see its payload.</p>;
   }
@@ -79,9 +79,9 @@ export function PayloadPanel({ event, scenarios, onTask }: { event: AtlasEvent |
         <Field label="HTTP">{event.http_status ? String(event.http_status) : ""}</Field>
         <Field label="duration">{event.duration_ms ? `${event.duration_ms} ms` : ""}</Field>
         <Field label="trace">
-          {traceId ? (
-            <a className="underline" href={`${JAEGER_URL}/trace/${traceId}`} target="_blank" rel="noreferrer">
-              open in Jaeger
+          {traceId || runTraceId ? (
+            <a className="underline" href={`${JAEGER_URL}/trace/${traceId ?? runTraceId}`} target="_blank" rel="noreferrer">
+              {traceId ? "open in Jaeger" : "whole run in Jaeger"}
             </a>
           ) : null}
         </Field>

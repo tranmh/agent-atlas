@@ -35,6 +35,7 @@ type Options struct {
 	Speed       float64 `json:"speed"`       // divides all waits; default 1
 	Chaos       bool    `json:"chaos"`       // first attempt to the streaming agent fails, the gateway retries
 	Breakpoints bool    `json:"breakpoints"` // ask the visualizer before every step
+	TraceID     string  `json:"trace_id"`    // one W3C trace for the whole run (Jaeger); generated if empty
 }
 
 // Config configures an orchestrator.
@@ -95,6 +96,9 @@ func (o *Orchestrator) Start(opts Options) (*RunStatus, error) {
 	}
 	if opts.Speed <= 0 {
 		opts.Speed = 1
+	}
+	if len(opts.TraceID) != 32 {
+		opts.TraceID = a2ax.NewTraceID()
 	}
 	o.mu.Lock()
 	if _, dup := o.runs[opts.RunID]; dup {
@@ -217,7 +221,7 @@ func (o *Orchestrator) step(ctx context.Context, st *RunStatus, tracker *a2ax.Tr
 	tr := &a2ax.Transport{
 		Base: o.cfg.HTTP, Emit: o.cfg.Emit, Tracker: tracker, PayloadLimit: o.cfg.PayloadLimit,
 		Call: a2ax.Call{RunID: st.RunID, Scenario: s.Code, Step: p.Step, Caller: s.Orchestrator.ID, Agent: p.Agent,
-			Chaos: st.Chaos && agent.Feature == scenario.FeatureStreaming},
+			Chaos: st.Chaos && agent.Feature == scenario.FeatureStreaming, TraceID: st.TraceID},
 	}
 	hc := &http.Client{Transport: tr}
 	start := time.Now()

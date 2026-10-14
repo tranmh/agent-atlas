@@ -299,7 +299,7 @@ export function AtlasApp() {
             </button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto" role="tabpanel">
-            {tab === "payload" ? <PayloadPanel event={selected} scenarios={scenarios} onTask={(id) => (setTaskId(id), setTab("task"))} /> : null}
+            {tab === "payload" ? <PayloadPanel event={selected} scenarios={scenarios} runTraceId={selected?.run_id ? view.runs.get(selected.run_id)?.traceId : undefined} onTask={(id) => (setTaskId(id), setTab("task"))} /> : null}
             {tab === "task" ? <TaskStatePanel task={task} scenarios={scenarios} onEvent={selectById} /> : null}
             {tab === "gateway" ? <GatewayPanel events={gatewayEvents} scenarios={scenarios} onSelect={(e) => select(e, { seek: true })} /> : null}
             {tab === "agent" ? <AgentPanel id={agentId} scenarios={scenarios} view={agentId ? view.agents.get(agentId) : undefined} live={live} /> : null}
