@@ -92,3 +92,22 @@ web-fixtures: ## Run the web app on :3001 replaying the bundled sample (no backe
 .PHONY: record-sample
 record-sample: ## Record web/public/samples/demo.jsonl: all 5 scenarios with chaos (stack must be up)
 	@./scripts/record-sample.sh
+
+OLLAMA_BIN  ?= $(HOME)/.local/share/ollama/bin/ollama
+OLLAMA_ADDR ?= 172.17.0.1:11434
+
+.PHONY: ollama-install
+ollama-install: ## Install Ollama for this user (no root) + pull LLM_MODEL (see docs/ollama.md)
+	./scripts/ollama-user-install.sh
+
+.PHONY: ollama-check
+ollama-check: ## Show the Ollama service, models, and where the model runs
+	@systemctl --user is-active ollama || true
+	@OLLAMA_HOST=$(OLLAMA_ADDR) $(OLLAMA_BIN) list
+	@OLLAMA_HOST=$(OLLAMA_ADDR) $(OLLAMA_BIN) ps
+
+.PHONY: llm-check
+llm-check: ## One chat completion through the gateway's LLM route
+	@curl -sf localhost:$(GATEWAY_LLM_HOST_PORT)/v1/chat/completions -H 'content-type: application/json' -H 'x-caller: make-llm-check' \
+		-d '{"model":"$(LLM_MODEL)","max_tokens":80,"reasoning_effort":"none","messages":[{"role":"user","content":"Say hello in five words."}]}' \
+		| jq -r '"\(.model): \(.choices[0].message.content) (\(.usage.completion_tokens) tokens)"'

@@ -9,8 +9,8 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
 | M2 | scenario schema, generator, scripted executor | done | 2ef8ab9 |
 | M3 | orchestrator, event log, visualizer SSE | done | c41c3ec |
 | M4 | map, arcs, panels, replay | done | 6db95b6 |
-| M5 | gateway policies, Jaeger, gateway view | done | (this commit) |
-| M6 | Ollama + LLM agents through the gateway | open | |
+| M5 | gateway policies, Jaeger, gateway view | done | 3dc6cd9 |
+| M6 | Ollama + LLM agents through the gateway | done | (this commit) |
 | M7 | all scenarios, e2e, screenshots, README | open | |
 | M8 | Fable code review; critical/high findings fixed test-first (red commit, then green commit) | open | |
 
@@ -53,6 +53,12 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
   agents pass it on to their LLM call, so Jaeger shows a whole run as one trace (verified: 26 spans for a
   service-case run, the retried upstream attempt appears twice, the denied call has no upstream span).
   The payload panel links to it ("whole run in Jaeger").
+
+- Ollama is installed per user without root (`scripts/ollama-user-install.sh`), not with the official
+  root script: `sudo` with a password is not permitted from the agent session. It runs as a systemd user
+  service bound to the Docker bridge (172.17.0.1), so it is not exposed on the LAN. Details and the
+  CPU-vs-iGPU measurement are in `docs/ollama.md` (CPU wins: 26.3 vs 22.4 tokens/s).
+- `/no_think` does not work on Ollama 0.40's OpenAI endpoint; the client sends `reasoning_effort: none`.
 
 ## Verified facts (M1 spike, agentgateway v1.6.0 + a2a-go v2.6.0)
 

@@ -17,7 +17,7 @@ func TestChatStripsThinkingAndSendsHeaders(t *testing.T) {
 		var req Request
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
 		require.Equal(t, "qwen3:1.7b", req.Model)
-		require.Contains(t, req.Messages[0].Content, "/no_think")
+		require.Equal(t, "none", req.ReasoningEffort)
 		_, _ = w.Write([]byte(`{"model":"qwen3:1.7b","choices":[{"message":{"role":"assistant","content":"<think>\n\n</think>\n\nBearing B3."}}],"usage":{"prompt_tokens":10,"completion_tokens":3}}`))
 	}))
 	defer srv.Close()

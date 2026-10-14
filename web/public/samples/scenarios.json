@@ -1104,8 +1104,8 @@
           }
         ],
         "llm": {
-          "system": "You are a corporate travel agent. Answer in at most three short sentences.",
-          "max_tokens": 160
+          "system": "You are a corporate travel agent. Answer in at most two short sentences. Do not invent extra flights or dates.",
+          "max_tokens": 90
         },
         "script": [
           {
@@ -1117,7 +1117,7 @@
             "wait": 2500
           },
           {
-            "llm": "Trip request: {{request}}. Best option: LH762 MUC-DEL 13:05 → 00:20 next day, return AI121 DEL-FRA. Write a two-sentence itinerary summary.",
+            "llm": "Trip request: {{request}}. Best option: outbound LH762 Munich to New Delhi Monday 13:05, arriving 00:20; return AI121 New Delhi to Frankfurt Friday. Summarise these two flights in two sentences.",
             "fallback": "Outbound LH762 Munich to New Delhi on Monday 13:05, arriving 00:20. Return AI121 on Friday via Frankfurt."
           },
           {

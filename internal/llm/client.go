@@ -36,6 +36,10 @@ type Request struct {
 	MaxTokens   int       `json:"max_tokens,omitempty"`
 	Temperature float64   `json:"temperature"`
 	Stream      bool      `json:"stream"`
+	// ReasoningEffort "none" turns off the thinking phase of reasoning models
+	// (qwen3 on Ollama): answers in ~2 s instead of spending every token on
+	// hidden reasoning. Other models ignore it.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // Usage is the token usage of a completion.
@@ -74,16 +78,12 @@ func (c *Client) Chat(ctx context.Context, system, prompt string, maxTokens int,
 	if hc == nil {
 		hc = &http.Client{Timeout: 60 * time.Second}
 	}
-	// Qwen3 thinks before answering unless told not to; "/no_think" keeps
-	// answers short and fast on a small CPU.
-	if strings.HasPrefix(c.Model, "qwen3") {
-		system += " /no_think"
-	}
 	body, _ := json.Marshal(Request{
-		Model:       c.Model,
-		Messages:    []Message{{Role: "system", Content: system}, {Role: "user", Content: prompt}},
-		MaxTokens:   maxTokens,
-		Temperature: 0.2,
+		Model:           c.Model,
+		Messages:        []Message{{Role: "system", Content: system}, {Role: "user", Content: prompt}},
+		MaxTokens:       maxTokens,
+		Temperature:     0.2,
+		ReasoningEffort: "none",
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.BaseURL, "/")+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
