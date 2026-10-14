@@ -20,7 +20,7 @@ replays it on a world map. All five scenarios can run at the same time.
 
 - `cp .env.example .env && make up` — build and start everything (`docker compose up -d --build --wait`).
 - `make gen` after editing `scenarios/*.yaml` or `cmd/atlasgen` templates; `make gen-check` / `go test ./cmd/atlasgen` fail on stale output.
-- `make test` (Go), `make lint` (gofmt, vet, web lint), `make web-test`, `make e2e` (stack must be up), `make screenshots`.
+- `make test-infra` (fresh-clone checks). `make test` (Go), `make lint` (gofmt, vet, web lint), `make web-test`, `make e2e` (stack must be up), `make screenshots`.
 - `make run SCENARIO=sc|ex|pm|tr|kh|all SPEED=1 CHAOS=true BREAKPOINTS=true`, `make tail-events`, `make gate-release`.
 - `make web-dev` (hot reload on :3001 against the stack), `make web-fixtures` (sample replay, no backend).
 - `make ollama-install | ollama-check | llm-check`. Ollama listens on 172.17.0.1:11434 (Docker bridge only).

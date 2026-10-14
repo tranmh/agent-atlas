@@ -11,8 +11,8 @@ Plan: [2026-10-14-master-plan.md](2026-10-14-master-plan.md). One row per milest
 | M4 | map, arcs, panels, replay | done | 6db95b6 |
 | M5 | gateway policies, Jaeger, gateway view | done | 3dc6cd9 |
 | M6 | Ollama + LLM agents through the gateway | done | 3b5d777 |
-| M7 | all scenarios, e2e, screenshots, README | done | (this commit) |
-| M8 | Fable code review; critical/high findings fixed test-first (red commit, then green commit) | open | |
+| M7 | all scenarios, e2e, screenshots, README | done | ab70359 |
+| M8 | Fable code review; critical/high findings fixed test-first (red commit, then green commit) | done | (this commit), see docs/reviews/2026-10-14-fable-code-review.md |
 
 ## Deviations from the plan
 
