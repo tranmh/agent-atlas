@@ -32,7 +32,9 @@ agents:
       - { say: "Loading 72 h of vibration data from Äänekoski…", wait: 2.5s }
       - { say: "Computing FFT spectrum…", wait: 2.5s }
       - { say: "Peak found at 2× rotation frequency…", wait: 2s }
-      - llm: "Refiner anomaly: {{request}}. The spectrum shows a growing peak at twice the rotation frequency and rising axial vibration. Give the most likely root cause."
+      - llm: "Refiner anomaly: {{request}}. Give the most likely root cause."
+        tools: [pm-historian, pm-cmms]
+        prompt_from: { server: pm-historian, name: root_cause }
         fallback: "A peak at 2× rotation frequency with axial vibration points to shaft misalignment. Realign the motor coupling."
       - artifact: { name: analysis, data: { root_cause: shaft misalignment, confidence: 0.81, remaining_days: 12 } }
       - { complete: "Root cause: shaft misalignment." }
@@ -49,7 +51,9 @@ agents:
     script:
       - { say: "Reading the production plan of the mill…", wait: 2.5s }
       - { input_required: "Two windows are possible: Tuesday night or Saturday morning. Which one?" }
-      - { say: "Blocking {{input}} in the production plan…", wait: 2.5s }
+      - { resource: { server: pm-historian, uri: "historian://pm/manuals/refiner-rf02" } }
+      - { say: "Blocking {{input}} in the production plan…", wait: 1.5s }
+      - { tool: { server: pm-cmms, name: open_work_orders, args: { asset: RF02 } } }
       - artifact: { name: window, data: { duration_h: 6, crew: 3 } }
       - { complete: "Maintenance window booked." }
   - id: pm-parts
@@ -63,7 +67,8 @@ agents:
     skills:
       - { id: source-parts, name: Source parts, description: Source and ship parts, tags: [logistics] }
     script:
-      - { say: "Checking the coupling kit in the Shanghai hub…", wait: 3s }
+      - { say: "Checking the coupling kit in the Shanghai hub…", wait: 1s }
+      - { tool: { server: pm-cmms, name: reserve_parts, args: { kit: coupling alignment kit } } }
       - { say: "Kit found, packing…", wait: 3s }
       - { say: "Booking express air freight to Helsinki…", wait: 3s }
       - { say: "Handing over to the courier…", wait: 3s }
@@ -81,7 +86,10 @@ agents:
       - { id: read-setpoints, name: Read set points, description: Read machine set points, tags: [remote] }
       - { id: restricted-plc-write, name: Write PLC, description: Change PLC set points (humans only), tags: [remote, critical] }
     script:
-      - { say: "Connecting to the refiner controller (read-only)…", wait: 2.5s }
+      - { say: "Trying to lower the refiner load through the maintenance system…", wait: 1s }
+      - { tool: { server: pm-cmms, name: restricted_write_setpoint, args: { asset: RF02, value: "8 MW" }, expect: denied } }
+      - { say: "Connecting to the refiner controller (read-only)…", wait: 1.5s }
+      - { tool: { server: pm-historian, name: read_spectrum, args: { asset: RF02, hours: 72 } } }
       - artifact: { name: setpoints, data: { speed_rpm: 1500, plate_gap_mm: 0.42, load_mw: 11.8 } }
       - { complete: "Set points read." }
 plan:
@@ -91,3 +99,54 @@ plan:
   - { step: slowdown, agent: pm-remote, call: send, skill: restricted-plc-write, text: "Reduce RF02 load to 8 MW until maintenance", expect: denied, say: "Monitoring Center tries to write the PLC. The gateway policy should refuse it." }
   - { step: read, agent: pm-remote, call: send, skill: read-setpoints, text: "Read RF02 set points", parallel: true, say: "Monitoring Center reads the set points instead." }
 closing: "RF02 maintenance planned before failure."
+
+mcp_servers:
+  - id: pm-historian
+    role: data
+    name: Mill Historian
+    description: Vibration spectra and manuals of the Finnish mills.
+    city: Jyväskylä
+    country: FI
+    lat: 62.2426
+    lon: 25.7473
+    tools:
+      - name: read_spectrum
+        description: Vibration spectrum of an asset over some hours.
+        params: [{ name: asset, type: string }, { name: hours, type: integer }]
+        result: "FFT of {{asset}} over {{hours}} h: peak at 2× rotation frequency (50 Hz), axial vibration 7.8 mm/s (limit 4.5 mm/s)."
+        data: { peak_hz: 50, axial_mm_s: 7.8, limit_mm_s: 4.5 }
+    resources:
+      - uri: "historian://pm/manuals/refiner-rf02"
+        name: RF02 alignment tolerances
+        mime: text/markdown
+        text: |
+          # Refiner RF02, motor coupling
+          Angular misalignment max 0.05 mm/100 mm, offset max 0.08 mm. Realign after every bearing change.
+          A peak at twice the rotation frequency with high axial vibration indicates misalignment.
+    prompts:
+      - name: root_cause
+        description: System prompt for a vibration root cause
+        text: You are a vibration analysis expert for pulp refiners. Before you answer, call read_spectrum for the asset. Then give the most likely root cause in at most three short sentences.
+  - id: pm-cmms
+    role: ops
+    name: Maintenance System
+    description: Work orders, spare parts and set points (CMMS).
+    city: Oulu
+    country: FI
+    lat: 65.0121
+    lon: 25.4651
+    tools:
+      - name: open_work_orders
+        description: Open work orders of an asset.
+        params: [{ name: asset, type: string }]
+        result: "{{asset}}: 1 open work order (coupling inspection, due in 30 days)."
+      - name: reserve_parts
+        description: Reserve a spare part kit across warehouses (slow).
+        params: [{ name: kit, type: string }]
+        progress: { steps: 4, every: 1.5s, say: "Checking warehouse {{step}} of {{steps}}…" }
+        result: "{{kit}} reserved in Shanghai, ships today."
+      - name: restricted_write_setpoint
+        description: Change a machine set point (write; humans only).
+        params: [{ name: asset, type: string }, { name: value, type: string }]
+        result: "{{asset}} set to {{value}}."
+        write: true

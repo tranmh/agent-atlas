@@ -5,6 +5,8 @@
 #   :3000  A2A traffic. One route per worker agent at /agents/<agent id>. The a2a policy makes the
 #          gateway understand A2A: it rewrites the URL in agent cards so clients never bypass it,
 #          and it logs the JSON-RPC method, task state and contextId of every call.
+#          MCP traffic. One route per scenario at /mcp/<code>, multiplexing that scenario's two MCP
+#          servers into one: tool and prompt names get the prefix "<server>_", resource URIs "<server>+".
 #   :3100  OpenAI-compatible LLM route. Agents in mode "llm" call it; it forwards to Ollama on the host.
 #   :15000 Admin UI.
 config:
@@ -23,6 +25,7 @@ frontendPolicies:
     add:
       run_id: 'request.headers["x-run-id"]'
       caller: 'request.headers["x-caller"]'
+      mcp_tool: 'mcp.tool.name'
     otlp:
       host: visualizer:8095
       protocol: http
@@ -123,6 +126,38 @@ routes:
   backends:
   - host: ex-shipping:8080
 
+# MCP for EX: Tariff & Sanctions DB (Luxembourg) + Order Management (Montreal).
+# HTTP policy: only this scenario's agents. MCP policy: write tools (restricted_*) are hidden from
+# tools/list and refused on tools/call; they never reach the server.
+- name: ex-mcp
+  matches:
+  - path:
+      pathPrefix: /mcp/ex
+  policies:
+    urlRewrite:
+      path:
+        prefix: /mcp
+    authorization:
+      rules:
+      - allow: 'request.headers["x-caller"].startsWith("ex-")'
+    mcpAuthorization:
+      rules:
+      - '!(has(mcp.tool) && mcp.tool.name.startsWith("restricted_"))'
+  backends:
+  - mcp:
+      statefulMode: stateful
+      targets:
+      - name: tariffs
+        mcp:
+          host: ex-tariffs
+          port: 8070
+          path: /mcp
+      - name: orders
+        mcp:
+          host: ex-orders
+          port: 8070
+          path: /mcp
+
 # ---- KH · Global expert finder (orchestrator: Knowledge Hub, Graz) ----
 
 # Document Search (Graz): streaming (SendStreamingMessage). Retry policy: a 503 is retried (chaos demo).
@@ -200,6 +235,38 @@ routes:
       - allow: 'request.headers["x-caller"] == "kh-orchestrator" && !string(default(json(request.body).params.message.metadata.skill, "")).startsWith("restricted-")'
   backends:
   - host: kh-hr-directory:8080
+
+# MCP for KH: Document Store (Dublin) + Translation Memory (Seoul).
+# HTTP policy: only this scenario's agents. MCP policy: write tools (restricted_*) are hidden from
+# tools/list and refused on tools/call; they never reach the server.
+- name: kh-mcp
+  matches:
+  - path:
+      pathPrefix: /mcp/kh
+  policies:
+    urlRewrite:
+      path:
+        prefix: /mcp
+    authorization:
+      rules:
+      - allow: 'request.headers["x-caller"].startsWith("kh-")'
+    mcpAuthorization:
+      rules:
+      - '!(has(mcp.tool) && mcp.tool.name.startsWith("restricted_"))'
+  backends:
+  - mcp:
+      statefulMode: stateful
+      targets:
+      - name: docs
+        mcp:
+          host: kh-docs
+          port: 8070
+          path: /mcp
+      - name: tm
+        mcp:
+          host: kh-tm
+          port: 8070
+          path: /mcp
 
 # ---- PM · Predictive maintenance (orchestrator: Monitoring Center, Graz) ----
 
@@ -279,6 +346,38 @@ routes:
   backends:
   - host: pm-remote:8080
 
+# MCP for PM: Mill Historian (Jyväskylä) + Maintenance System (Oulu).
+# HTTP policy: only this scenario's agents. MCP policy: write tools (restricted_*) are hidden from
+# tools/list and refused on tools/call; they never reach the server.
+- name: pm-mcp
+  matches:
+  - path:
+      pathPrefix: /mcp/pm
+  policies:
+    urlRewrite:
+      path:
+        prefix: /mcp
+    authorization:
+      rules:
+      - allow: 'request.headers["x-caller"].startsWith("pm-")'
+    mcpAuthorization:
+      rules:
+      - '!(has(mcp.tool) && mcp.tool.name.startsWith("restricted_"))'
+  backends:
+  - mcp:
+      statefulMode: stateful
+      targets:
+      - name: historian
+        mcp:
+          host: pm-historian
+          port: 8070
+          path: /mcp
+      - name: cmms
+        mcp:
+          host: pm-cmms
+          port: 8070
+          path: /mcp
+
 # ---- SC · ANDRITZ service case (orchestrator: Service Desk, Göppingen) ----
 
 # Diagnosis (Göppingen): streaming (SendStreamingMessage). Retry policy: a 503 is retried (chaos demo).
@@ -357,6 +456,38 @@ routes:
   backends:
   - host: sc-field-service:8080
 
+# MCP for SC: Plant Historian (Curitiba) + ERP & Spare Parts (São Paulo).
+# HTTP policy: only this scenario's agents. MCP policy: write tools (restricted_*) are hidden from
+# tools/list and refused on tools/call; they never reach the server.
+- name: sc-mcp
+  matches:
+  - path:
+      pathPrefix: /mcp/sc
+  policies:
+    urlRewrite:
+      path:
+        prefix: /mcp
+    authorization:
+      rules:
+      - allow: 'request.headers["x-caller"].startsWith("sc-")'
+    mcpAuthorization:
+      rules:
+      - '!(has(mcp.tool) && mcp.tool.name.startsWith("restricted_"))'
+  backends:
+  - mcp:
+      statefulMode: stateful
+      targets:
+      - name: historian
+        mcp:
+          host: sc-historian
+          port: 8070
+          path: /mcp
+      - name: erp
+        mcp:
+          host: sc-erp
+          port: 8070
+          path: /mcp
+
 # ---- TR · Business travel booking (orchestrator: Travel Desk, Munich) ----
 
 # Flights (Frankfurt): streaming (SendStreamingMessage). Retry policy: a 503 is retried (chaos demo).
@@ -434,3 +565,35 @@ routes:
       - allow: 'request.headers["x-caller"] == "tr-orchestrator" && !string(default(json(request.body).params.message.metadata.skill, "")).startsWith("restricted-")'
   backends:
   - host: tr-expense:8080
+
+# MCP for TR: Flight Inventory (GDS) (Madrid) + HR & Travel Policy (Hamburg).
+# HTTP policy: only this scenario's agents. MCP policy: write tools (restricted_*) are hidden from
+# tools/list and refused on tools/call; they never reach the server.
+- name: tr-mcp
+  matches:
+  - path:
+      pathPrefix: /mcp/tr
+  policies:
+    urlRewrite:
+      path:
+        prefix: /mcp
+    authorization:
+      rules:
+      - allow: 'request.headers["x-caller"].startsWith("tr-")'
+    mcpAuthorization:
+      rules:
+      - '!(has(mcp.tool) && mcp.tool.name.startsWith("restricted_"))'
+  backends:
+  - mcp:
+      statefulMode: stateful
+      targets:
+      - name: gds
+        mcp:
+          host: tr-gds
+          port: 8070
+          path: /mcp
+      - name: hr
+        mcp:
+          host: tr-hr
+          port: 8070
+          path: /mcp

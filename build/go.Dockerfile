@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # One parameterised image for every Go service:
 #   docker build -f build/go.Dockerfile --build-arg SERVICE=agent .
-# SERVICE is one of: agent | orchestrator | visualizer (a directory under cmd/).
+# SERVICE is one of: agent | orchestrator | visualizer | mcpserver (a directory under cmd/).
 ARG SERVICE=agent
 
 FROM golang:1.26-alpine AS build

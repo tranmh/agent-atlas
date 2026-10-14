@@ -3,7 +3,7 @@
 -include .env
 export
 
-GO_SERVICES := agent orchestrator visualizer atlasgen
+GO_SERVICES := agent orchestrator visualizer mcpserver atlasgen
 # The visualizer writes data/sessions as this user (docker-compose.yml `user:`).
 UID_GID ?= $(shell id -u):$(shell id -g)
 export UID_GID

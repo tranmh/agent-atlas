@@ -49,8 +49,16 @@
             "wait": 2500
           },
           {
-            "llm": "Customer order: {{request}}. Payment history: 14 invoices, all paid within 35 days. Insurer limit 6 M EUR. Give a short credit verdict.",
-            "fallback": "Low risk: all 14 invoices paid on time and the order is within the insurer limit. Approve with standard terms."
+            "llm": "Customer order: {{request}}. Give a short credit verdict.",
+            "fallback": "Low risk: all 14 invoices paid on time and the order is within the insurer limit. Approve with standard terms.",
+            "tools": [
+              "ex-tariffs",
+              "ex-orders"
+            ],
+            "prompt_from": {
+              "server": "ex-tariffs",
+              "name": "credit_review"
+            }
           },
           {
             "artifact": {
@@ -96,8 +104,23 @@
             "input_required": "Please provide the end-user certificate number."
           },
           {
+            "resource": {
+              "server": "ex-tariffs",
+              "uri": "tariffs://ex/rules/dual-use"
+            }
+          },
+          {
             "say": "Validating certificate {{input}}…",
-            "wait": 2500
+            "wait": 1500
+          },
+          {
+            "tool": {
+              "server": "ex-tariffs",
+              "name": "screen_party",
+              "args": {
+                "name": "Laurentide Paper Inc"
+              }
+            }
           },
           {
             "artifact": {
@@ -136,7 +159,16 @@
         "script": [
           {
             "say": "Drafting the EU export declaration…",
-            "wait": 3000
+            "wait": 1000
+          },
+          {
+            "tool": {
+              "server": "ex-tariffs",
+              "name": "file_declaration",
+              "args": {
+                "order": "88-1203"
+              }
+            }
           },
           {
             "say": "Submitting to Dutch customs…",
@@ -195,8 +227,31 @@
         ],
         "script": [
           {
+            "say": "Trying to release the goods directly from the order system…",
+            "wait": 1000
+          },
+          {
+            "tool": {
+              "server": "ex-orders",
+              "name": "restricted_release_goods",
+              "args": {
+                "order": "88-1203"
+              },
+              "expect": "denied"
+            }
+          },
+          {
             "say": "Searching sailings Rotterdam → Montreal…",
-            "wait": 2500
+            "wait": 1500
+          },
+          {
+            "tool": {
+              "server": "ex-orders",
+              "name": "container_status",
+              "args": {
+                "port": "Rotterdam"
+              }
+            }
           },
           {
             "artifact": {
@@ -259,6 +314,128 @@
         "parallel": true
       }
     ],
+    "mcp_servers": [
+      {
+        "id": "ex-tariffs",
+        "name": "Tariff \u0026 Sanctions DB",
+        "description": "Customs tariffs, sanctions lists and export rules.",
+        "city": "Luxembourg",
+        "country": "LU",
+        "lat": 49.6116,
+        "lon": 6.1319,
+        "role": "data",
+        "tools": [
+          {
+            "name": "screen_party",
+            "description": "Screen a company against sanctions lists.",
+            "params": [
+              {
+                "name": "name",
+                "type": "string"
+              }
+            ],
+            "result": "{{name}}: no match on EU, UN or OFAC sanctions lists."
+          },
+          {
+            "name": "tariff_lookup",
+            "description": "Duty for a tariff code into a country.",
+            "params": [
+              {
+                "name": "hs_code",
+                "type": "string"
+              },
+              {
+                "name": "country",
+                "type": "string"
+              }
+            ],
+            "result": "HS {{hs_code}} into {{country}}: 0 % duty under CETA, 5 % GST on import."
+          },
+          {
+            "name": "file_declaration",
+            "description": "File the electronic export declaration (slow).",
+            "params": [
+              {
+                "name": "order",
+                "type": "string"
+              }
+            ],
+            "result": "Export declaration for order {{order}} accepted, MRN 26LU0000000123456.",
+            "progress": {
+              "steps": 4,
+              "every": 1500,
+              "say": "Customs system step {{step}} of {{steps}}…"
+            }
+          }
+        ],
+        "resources": [
+          {
+            "uri": "tariffs://ex/rules/dual-use",
+            "name": "EU dual-use regulation, refiner excerpt",
+            "mime": "text/markdown",
+            "text": "# Regulation (EU) 2021/821, Annex I\nDisc refiners for pulp are not listed. No licence is needed unless the end user is on a sanctions list\nor the goods are for military use. Keep the end-user certificate for five years.\n"
+          }
+        ],
+        "prompts": [
+          {
+            "name": "credit_review",
+            "description": "System prompt for a credit check",
+            "text": "You are a credit analyst for industrial exports. Before you answer, call order_history for the customer. Then give a credit verdict in at most three short sentences."
+          }
+        ]
+      },
+      {
+        "id": "ex-orders",
+        "name": "Order Management",
+        "description": "Orders, payments and containers.",
+        "city": "Montreal",
+        "country": "CA",
+        "lat": 45.5019,
+        "lon": -73.5674,
+        "role": "ops",
+        "tools": [
+          {
+            "name": "order_history",
+            "description": "Order and payment history of a customer.",
+            "params": [
+              {
+                "name": "customer",
+                "type": "string"
+              }
+            ],
+            "result": "{{customer}}: 14 orders since 2019, all paid within 35 days, open balance 0 EUR.",
+            "data": {
+              "avg_days_to_pay": 31,
+              "open_balance_eur": 0,
+              "orders": 14
+            }
+          },
+          {
+            "name": "container_status",
+            "description": "Free containers at a port.",
+            "params": [
+              {
+                "name": "port",
+                "type": "string"
+              }
+            ],
+            "result": "{{port}}: 6 free 40ft high-cube containers, next sailing to Montreal in 5 days."
+          },
+          {
+            "name": "restricted_release_goods",
+            "description": "Release goods for shipping without customs clearance (write; humans only).",
+            "params": [
+              {
+                "name": "order",
+                "type": "string"
+              }
+            ],
+            "result": "Order {{order}} released.",
+            "write": true
+          }
+        ]
+      }
+    ],
     "closing": "Order 88-1203 ready to ship."
   },
   {
@@ -311,8 +488,16 @@
             "wait": 2500
           },
           {
-            "llm": "Question from a steel plant engineer: {{request}}. Relevant finding: strip edge cracks rose after the coolant flow was reduced by 15 %. Draft a short answer.",
-            "fallback": "Edge cracks after a coolant reduction usually come from uneven strip cooling. Restore the coolant flow and check the edge sprays."
+            "llm": "Question from a steel plant engineer: {{request}}. Draft a short answer.",
+            "fallback": "Edge cracks after a coolant reduction usually come from uneven strip cooling. Restore the coolant flow and check the edge sprays.",
+            "tools": [
+              "kh-docs",
+              "kh-tm"
+            ],
+            "prompt_from": {
+              "server": "kh-docs",
+              "name": "answer_draft"
+            }
           },
           {
             "artifact": {
@@ -357,8 +542,23 @@
             "input_required": "How urgent is it: today, this week, or this month?"
           },
           {
+            "resource": {
+              "server": "kh-docs",
+              "uri": "docs://kh/reports/sr-2021-114"
+            }
+          },
+          {
             "say": "Looking for experts available {{input}}…",
-            "wait": 2500
+            "wait": 1500
+          },
+          {
+            "tool": {
+              "server": "kh-docs",
+              "name": "search_docs",
+              "args": {
+                "query": "cold rolling edge cooling"
+              }
+            }
           },
           {
             "artifact": {
@@ -398,7 +598,16 @@
         "script": [
           {
             "say": "Extracting technical terms…",
-            "wait": 3000
+            "wait": 1000
+          },
+          {
+            "tool": {
+              "server": "kh-tm",
+              "name": "translate_batch",
+              "args": {
+                "document": "answer-draft"
+              }
+            }
           },
           {
             "say": "Translating English → Korean…",
@@ -453,8 +662,32 @@
         ],
         "script": [
           {
+            "say": "Trying to publish the answer to the global knowledge base…",
+            "wait": 1000
+          },
+          {
+            "tool": {
+              "server": "kh-tm",
+              "name": "restricted_publish_answer",
+              "args": {
+                "document": "answer-draft"
+              },
+              "expect": "denied"
+            }
+          },
+          {
             "say": "Looking up the business contact…",
-            "wait": 2000
+            "wait": 1500
+          },
+          {
+            "tool": {
+              "server": "kh-tm",
+              "name": "lookup_terms",
+              "args": {
+                "language": "ko",
+                "term": "edge cracking"
+              }
+            }
           },
           {
             "artifact": {
@@ -517,6 +750,106 @@
         "parallel": true
       }
     ],
+    "mcp_servers": [
+      {
+        "id": "kh-docs",
+        "name": "Document Store",
+        "description": "Manuals, service reports and papers.",
+        "city": "Dublin",
+        "country": "IE",
+        "lat": 53.3498,
+        "lon": -6.2603,
+        "role": "data",
+        "tools": [
+          {
+            "name": "search_docs",
+            "description": "Full-text search in manuals and service reports.",
+            "params": [
+              {
+                "name": "query",
+                "type": "string"
+              }
+            ],
+            "result": "3 hits for '{{query}}': SR-2021-114 (edge cracks after a coolant change, Pohang), manual TM-COLD-07 §4.2, paper 'Strip edge cooling' (2019)."
+          }
+        ],
+        "resources": [
+          {
+            "uri": "docs://kh/reports/sr-2021-114",
+            "name": "Service report SR-2021-114",
+            "mime": "text/markdown",
+            "text": "# SR-2021-114, cold mill 2, Pohang\nEdge cracks rose from 0.2 % to 3.1 % of coils after the coolant flow was cut by 15 %.\nRoot cause: uneven strip cooling at the edges. Fix: restore the flow, check the edge sprays.\nAuthor: Dr. Maria Hofer.\n"
+          }
+        ],
+        "prompts": [
+          {
+            "name": "answer_draft",
+            "description": "System prompt for a technical answer",
+            "text": "You are a senior metals process engineer. Before you answer, call search_docs with the key words of the question. Then answer in at most three short sentences."
+          }
+        ]
+      },
+      {
+        "id": "kh-tm",
+        "name": "Translation Memory",
+        "description": "Terminology, translations and publishing.",
+        "city": "Seoul",
+        "country": "KR",
+        "lat": 37.5665,
+        "lon": 126.978,
+        "role": "ops",
+        "tools": [
+          {
+            "name": "lookup_terms",
+            "description": "Approved translation of a technical term.",
+            "params": [
+              {
+                "name": "term",
+                "type": "string"
+              },
+              {
+                "name": "language",
+                "type": "string",
+                "enum": [
+                  "ko",
+                  "de",
+                  "en"
+                ]
+              }
+            ],
+            "result": "'{{term}}' in {{language}}: 에지 크랙 (approved 2024)."
+          },
+          {
+            "name": "translate_batch",
+            "description": "Translate a document segment by segment (slow).",
+            "params": [
+              {
+                "name": "document",
+                "type": "string"
+              }
+            ],
+            "result": "{{document}} translated to Korean: 212 words, 4 terms from the memory.",
+            "progress": {
+              "steps": 4,
+              "every": 1500,
+              "say": "Translating segment block {{step}} of {{steps}}…"
+            }
+          },
+          {
+            "name": "restricted_publish_answer",
+            "description": "Publish an answer to the global knowledge base (write; editors only).",
+            "params": [
+              {
+                "name": "document",
+                "type": "string"
+              }
+            ],
+            "result": "{{document}} published.",
+            "write": true
+          }
+        ]
+      }
+    ],
     "closing": "Question answered, expert connected."
   },
   {
@@ -573,8 +906,16 @@
             "wait": 2000
           },
           {
-            "llm": "Refiner anomaly: {{request}}. The spectrum shows a growing peak at twice the rotation frequency and rising axial vibration. Give the most likely root cause.",
-            "fallback": "A peak at 2× rotation frequency with axial vibration points to shaft misalignment. Realign the motor coupling."
+            "llm": "Refiner anomaly: {{request}}. Give the most likely root cause.",
+            "fallback": "A peak at 2× rotation frequency with axial vibration points to shaft misalignment. Realign the motor coupling.",
+            "tools": [
+              "pm-historian",
+              "pm-cmms"
+            ],
+            "prompt_from": {
+              "server": "pm-historian",
+              "name": "root_cause"
+            }
           },
           {
             "artifact": {
@@ -620,8 +961,23 @@
             "input_required": "Two windows are possible: Tuesday night or Saturday morning. Which one?"
           },
           {
+            "resource": {
+              "server": "pm-historian",
+              "uri": "historian://pm/manuals/refiner-rf02"
+            }
+          },
+          {
             "say": "Blocking {{input}} in the production plan…",
-            "wait": 2500
+            "wait": 1500
+          },
+          {
+            "tool": {
+              "server": "pm-cmms",
+              "name": "open_work_orders",
+              "args": {
+                "asset": "RF02"
+              }
+            }
           },
           {
             "artifact": {
@@ -660,7 +1016,16 @@
         "script": [
           {
             "say": "Checking the coupling kit in the Shanghai hub…",
-            "wait": 3000
+            "wait": 1000
+          },
+          {
+            "tool": {
+              "server": "pm-cmms",
+              "name": "reserve_parts",
+              "args": {
+                "kit": "coupling alignment kit"
+              }
+            }
           },
           {
             "say": "Kit found, packing…",
@@ -720,8 +1085,33 @@
         ],
         "script": [
           {
+            "say": "Trying to lower the refiner load through the maintenance system…",
+            "wait": 1000
+          },
+          {
+            "tool": {
+              "server": "pm-cmms",
+              "name": "restricted_write_setpoint",
+              "args": {
+                "asset": "RF02",
+                "value": "8 MW"
+              },
+              "expect": "denied"
+            }
+          },
+          {
             "say": "Connecting to the refiner controller (read-only)…",
-            "wait": 2500
+            "wait": 1500
+          },
+          {
+            "tool": {
+              "server": "pm-historian",
+              "name": "read_spectrum",
+              "args": {
+                "asset": "RF02",
+                "hours": 72
+              }
+            }
           },
           {
             "artifact": {
@@ -784,6 +1174,110 @@
         "parallel": true
       }
     ],
+    "mcp_servers": [
+      {
+        "id": "pm-historian",
+        "name": "Mill Historian",
+        "description": "Vibration spectra and manuals of the Finnish mills.",
+        "city": "Jyväskylä",
+        "country": "FI",
+        "lat": 62.2426,
+        "lon": 25.7473,
+        "role": "data",
+        "tools": [
+          {
+            "name": "read_spectrum",
+            "description": "Vibration spectrum of an asset over some hours.",
+            "params": [
+              {
+                "name": "asset",
+                "type": "string"
+              },
+              {
+                "name": "hours",
+                "type": "integer"
+              }
+            ],
+            "result": "FFT of {{asset}} over {{hours}} h: peak at 2× rotation frequency (50 Hz), axial vibration 7.8 mm/s (limit 4.5 mm/s).",
+            "data": {
+              "axial_mm_s": 7.8,
+              "limit_mm_s": 4.5,
+              "peak_hz": 50
+            }
+          }
+        ],
+        "resources": [
+          {
+            "uri": "historian://pm/manuals/refiner-rf02",
+            "name": "RF02 alignment tolerances",
+            "mime": "text/markdown",
+            "text": "# Refiner RF02, motor coupling\nAngular misalignment max 0.05 mm/100 mm, offset max 0.08 mm. Realign after every bearing change.\nA peak at twice the rotation frequency with high axial vibration indicates misalignment.\n"
+          }
+        ],
+        "prompts": [
+          {
+            "name": "root_cause",
+            "description": "System prompt for a vibration root cause",
+            "text": "You are a vibration analysis expert for pulp refiners. Before you answer, call read_spectrum for the asset. Then give the most likely root cause in at most three short sentences."
+          }
+        ]
+      },
+      {
+        "id": "pm-cmms",
+        "name": "Maintenance System",
+        "description": "Work orders, spare parts and set points (CMMS).",
+        "city": "Oulu",
+        "country": "FI",
+        "lat": 65.0121,
+        "lon": 25.4651,
+        "role": "ops",
+        "tools": [
+          {
+            "name": "open_work_orders",
+            "description": "Open work orders of an asset.",
+            "params": [
+              {
+                "name": "asset",
+                "type": "string"
+              }
+            ],
+            "result": "{{asset}}: 1 open work order (coupling inspection, due in 30 days)."
+          },
+          {
+            "name": "reserve_parts",
+            "description": "Reserve a spare part kit across warehouses (slow).",
+            "params": [
+              {
+                "name": "kit",
+                "type": "string"
+              }
+            ],
+            "result": "{{kit}} reserved in Shanghai, ships today.",
+            "progress": {
+              "steps": 4,
+              "every": 1500,
+              "say": "Checking warehouse {{step}} of {{steps}}…"
+            }
+          },
+          {
+            "name": "restricted_write_setpoint",
+            "description": "Change a machine set point (write; humans only).",
+            "params": [
+              {
+                "name": "asset",
+                "type": "string"
+              },
+              {
+                "name": "value",
+                "type": "string"
+              }
+            ],
+            "result": "{{asset}} set to {{value}}.",
+            "write": true
+          }
+        ]
+      }
+    ],
     "closing": "RF02 maintenance planned before failure."
   },
   {
@@ -840,8 +1334,16 @@
             "wait": 2000
           },
           {
-            "llm": "A hydro turbine reports: {{request}}. Bearing B3 runs 18 K above normal and vibration rose 40 % in two weeks. What is the most likely fault and the next action?",
-            "fallback": "Most likely fault: bearing B3 overheating from lubrication loss. Replace the bearing and check the oil circuit."
+            "llm": "A hydro turbine reports: {{request}}. Find out what is wrong and name the next action.",
+            "fallback": "Most likely fault: bearing B3 overheating from lubrication loss. Replace the bearing and check the oil circuit.",
+            "tools": [
+              "sc-historian",
+              "sc-erp"
+            ],
+            "prompt_from": {
+              "server": "sc-historian",
+              "name": "diagnose"
+            }
           },
           {
             "artifact": {
@@ -887,8 +1389,23 @@
             "input_required": "Which machine serial number is affected? Two bearing variants exist for T3."
           },
           {
+            "resource": {
+              "server": "sc-historian",
+              "uri": "historian://sc/manuals/turbine-t3"
+            }
+          },
+          {
             "say": "Serial {{input}} uses bearing SKF 23148. Checking stock…",
-            "wait": 2500
+            "wait": 1500
+          },
+          {
+            "tool": {
+              "server": "sc-erp",
+              "name": "check_stock",
+              "args": {
+                "part": "SKF 23148"
+              }
+            }
           },
           {
             "say": "Reserving one unit in the Rotterdam warehouse…",
@@ -933,7 +1450,17 @@
         "script": [
           {
             "say": "Requesting express freight quotes…",
-            "wait": 3000
+            "wait": 1000
+          },
+          {
+            "tool": {
+              "server": "sc-erp",
+              "name": "quote_freight",
+              "args": {
+                "destination": "Foz do Iguaçu",
+                "part": "SKF 23148"
+              }
+            }
           },
           {
             "say": "Three carriers answered, choosing the fastest…",
@@ -997,8 +1524,31 @@
         ],
         "script": [
           {
+            "say": "Trying to shut turbine T3 down remotely until the part arrives…",
+            "wait": 1000
+          },
+          {
+            "tool": {
+              "server": "sc-erp",
+              "name": "restricted_shutdown_turbine",
+              "args": {
+                "asset": "T3"
+              },
+              "expect": "denied"
+            }
+          },
+          {
             "say": "Checking technician calendars in Paraná…",
-            "wait": 2500
+            "wait": 1500
+          },
+          {
+            "tool": {
+              "server": "sc-erp",
+              "name": "list_technicians",
+              "args": {
+                "region": "Paraná"
+              }
+            }
           },
           {
             "say": "Technician Ana Souza is available on Friday…",
@@ -1065,6 +1615,137 @@
         "parallel": true
       }
     ],
+    "mcp_servers": [
+      {
+        "id": "sc-historian",
+        "name": "Plant Historian",
+        "description": "Sensor history and manuals of the Itaipu-region plants.",
+        "city": "Curitiba",
+        "country": "BR",
+        "lat": -25.4284,
+        "lon": -49.2733,
+        "role": "data",
+        "tools": [
+          {
+            "name": "read_trend",
+            "description": "Read the trend of one sensor signal of an asset.",
+            "params": [
+              {
+                "name": "asset",
+                "type": "string",
+                "description": "Asset, e.g. T3"
+              },
+              {
+                "name": "signal",
+                "type": "string",
+                "enum": [
+                  "bearing_temp",
+                  "vibration",
+                  "oil_pressure"
+                ]
+              },
+              {
+                "name": "days",
+                "type": "integer",
+                "description": "Days of history"
+              }
+            ],
+            "result": "{{signal}} of {{asset}} over the last {{days}} days: rising. bearing_temp peaks at 92.4 °C (normal 74.1 °C), vibration +40 %.",
+            "data": {
+              "normal": 74.1,
+              "peak": 92.4,
+              "unit": "°C",
+              "vibration_change_pct": 40
+            }
+          }
+        ],
+        "resources": [
+          {
+            "uri": "historian://sc/manuals/turbine-t3",
+            "name": "Turbine T3 manual, bearing section",
+            "mime": "text/markdown",
+            "text": "# Turbine T3, guide bearing B3\nSpherical roller bearing. Serial SN-T3-2019-*: SKF 23148. Serial SN-T3-2021-*: SKF 23148-CC.\nAlarm at 85 °C. Replace when the temperature stays 15 K above normal for more than 7 days.\n"
+          }
+        ],
+        "prompts": [
+          {
+            "name": "diagnose",
+            "description": "System prompt for a bearing diagnosis",
+            "text": "You are a hydro turbine diagnostics engineer. Before you answer, call read_trend for the asset's bearing_temp. Then answer in at most three short sentences with the fault and the next action."
+          }
+        ]
+      },
+      {
+        "id": "sc-erp",
+        "name": "ERP \u0026 Spare Parts",
+        "description": "Stock, freight quotes and field crews.",
+        "city": "São Paulo",
+        "country": "BR",
+        "lat": -23.5505,
+        "lon": -46.6333,
+        "role": "ops",
+        "tools": [
+          {
+            "name": "check_stock",
+            "description": "Stock of a spare part in all warehouses.",
+            "params": [
+              {
+                "name": "part",
+                "type": "string"
+              }
+            ],
+            "result": "{{part}}: 3 in stock in Rotterdam, 1 in São Paulo (reserved).",
+            "data": {
+              "rotterdam": 3,
+              "sao_paulo": 1
+            }
+          },
+          {
+            "name": "quote_freight",
+            "description": "Ask carriers for express freight quotes (slow).",
+            "params": [
+              {
+                "name": "part",
+                "type": "string"
+              },
+              {
+                "name": "destination",
+                "type": "string"
+              }
+            ],
+            "result": "Best quote for {{part}} to {{destination}}: AirCargo Express, 3 days, 4 120 EUR.",
+            "progress": {
+              "steps": 4,
+              "every": 1500,
+              "say": "Asking carrier {{step}} of {{steps}} for a quote…"
+            }
+          },
+          {
+            "name": "list_technicians",
+            "description": "Available field technicians in a region.",
+            "params": [
+              {
+                "name": "region",
+                "type": "string"
+              }
+            ],
+            "result": "Technicians in {{region}}: Ana Souza (free Friday), João Lima (free Monday)."
+          },
+          {
+            "name": "restricted_shutdown_turbine",
+            "description": "Shut a turbine down remotely (write; humans only).",
+            "params": [
+              {
+                "name": "asset",
+                "type": "string"
+              }
+            ],
+            "result": "Turbine {{asset}} shut down.",
+            "write": true
+          }
+        ]
+      }
+    ],
     "closing": "Ticket #4711 closed: bearing reserved, shipped, technician booked."
   },
   {
@@ -1117,8 +1798,16 @@
             "wait": 2500
           },
           {
-            "llm": "Trip request: {{request}}. Best option: outbound LH762 Munich to New Delhi Monday 13:05, arriving 00:20; return AI121 New Delhi to Frankfurt Friday. Summarise these two flights in two sentences.",
-            "fallback": "Outbound LH762 Munich to New Delhi on Monday 13:05, arriving 00:20. Return AI121 on Friday via Frankfurt."
+            "llm": "Trip request: {{request}}. Propose the outbound and return flights in two sentences.",
+            "fallback": "Outbound LH762 Munich to New Delhi on Monday 13:05, arriving 00:20. Return AI121 on Friday via Frankfurt.",
+            "tools": [
+              "tr-gds",
+              "tr-hr"
+            ],
+            "prompt_from": {
+              "server": "tr-gds",
+              "name": "itinerary"
+            }
           },
           {
             "artifact": {
@@ -1165,8 +1854,23 @@
             "input_required": "Check-in Monday night or Tuesday? The flight lands after midnight."
           },
           {
+            "resource": {
+              "server": "tr-gds",
+              "uri": "gds://tr/hotels/gurugram"
+            }
+          },
+          {
             "say": "Booking for check-in {{input}}…",
-            "wait": 2500
+            "wait": 1500
+          },
+          {
+            "tool": {
+              "server": "tr-hr",
+              "name": "travel_policy",
+              "args": {
+                "grade": "E12"
+              }
+            }
           },
           {
             "artifact": {
@@ -1205,7 +1909,16 @@
         "script": [
           {
             "say": "Filling in the e-business visa form…",
-            "wait": 3000
+            "wait": 1000
+          },
+          {
+            "tool": {
+              "server": "tr-hr",
+              "name": "check_visa_status",
+              "args": {
+                "application": "IN-EB-2026-55871"
+              }
+            }
           },
           {
             "say": "Uploading passport and invitation letter…",
@@ -1264,8 +1977,31 @@
         ],
         "script": [
           {
+            "say": "Trying to approve business class in the HR system…",
+            "wait": 1000
+          },
+          {
+            "tool": {
+              "server": "tr-hr",
+              "name": "restricted_approve_business_class",
+              "args": {
+                "trip": "MUC-DEL-2026-10"
+              },
+              "expect": "denied"
+            }
+          },
+          {
             "say": "Checking the trip against the travel policy…",
-            "wait": 2500
+            "wait": 1500
+          },
+          {
+            "tool": {
+              "server": "tr-hr",
+              "name": "travel_policy",
+              "args": {
+                "grade": "E12"
+              }
+            }
           },
           {
             "artifact": {
@@ -1325,6 +2061,105 @@
         "text": "Approve the economy trip, 2 400 EUR",
         "say": "Travel Desk gets the economy trip approved.",
         "parallel": true
+      }
+    ],
+    "mcp_servers": [
+      {
+        "id": "tr-gds",
+        "name": "Flight Inventory (GDS)",
+        "description": "Flights, fares and corporate hotel rates.",
+        "city": "Madrid",
+        "country": "ES",
+        "lat": 40.4168,
+        "lon": -3.7038,
+        "role": "data",
+        "tools": [
+          {
+            "name": "search_flights",
+            "description": "Flights between two cities on a date.",
+            "params": [
+              {
+                "name": "origin",
+                "type": "string"
+              },
+              {
+                "name": "destination",
+                "type": "string"
+              },
+              {
+                "name": "date",
+                "type": "string"
+              }
+            ],
+            "result": "{{origin}} → {{destination}} on {{date}}: LH762 13:05–00:20 (+1), 640 EUR; AI122 21:50–09:35 (+1), 590 EUR."
+          }
+        ],
+        "resources": [
+          {
+            "uri": "gds://tr/hotels/gurugram",
+            "name": "Corporate hotel rates, Gurugram",
+            "mime": "text/markdown",
+            "text": "# Corporate rates, Gurugram (2026)\nOberoi Gurgaon 165 EUR/night, late check-in after midnight guaranteed with the corporate rate.\nLeela Ambience 150 EUR/night.\n"
+          }
+        ],
+        "prompts": [
+          {
+            "name": "itinerary",
+            "description": "System prompt for an itinerary",
+            "text": "You are a corporate travel agent. Before you answer, call search_flights for the outbound trip. Then propose the flights in at most two sentences. Do not invent flights."
+          }
+        ]
+      },
+      {
+        "id": "tr-hr",
+        "name": "HR \u0026 Travel Policy",
+        "description": "Travel policy, visa applications and approvals.",
+        "city": "Hamburg",
+        "country": "DE",
+        "lat": 53.5511,
+        "lon": 9.9937,
+        "role": "ops",
+        "tools": [
+          {
+            "name": "travel_policy",
+            "description": "Travel policy for an employee grade.",
+            "params": [
+              {
+                "name": "grade",
+                "type": "string"
+              }
+            ],
+            "result": "Grade {{grade}}: economy for flights under 10 h, hotels up to 180 EUR per night."
+          },
+          {
+            "name": "check_visa_status",
+            "description": "Follow a visa application through the embassy portal (slow).",
+            "params": [
+              {
+                "name": "application",
+                "type": "string"
+              }
+            ],
+            "result": "Visa application {{application}}: granted, e-visa issued.",
+            "progress": {
+              "steps": 4,
+              "every": 1500,
+              "say": "Embassy portal step {{step}} of {{steps}}…"
+            }
+          },
+          {
+            "name": "restricted_approve_business_class",
+            "description": "Approve business class for a trip (write; managers only).",
+            "params": [
+              {
+                "name": "trip",
+                "type": "string"
+              }
+            ],
+            "result": "Business class approved for {{trip}}.",
+            "write": true
+          }
+        ]
       }
     ],
     "closing": "Trip to New Delhi booked."

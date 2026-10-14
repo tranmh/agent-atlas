@@ -31,7 +31,9 @@ agents:
     script:
       - { say: "Fetching payment history of Laurentide Paper Inc…", wait: 2.5s }
       - { say: "Checking credit insurer limits…", wait: 2.5s }
-      - llm: "Customer order: {{request}}. Payment history: 14 invoices, all paid within 35 days. Insurer limit 6 M EUR. Give a short credit verdict."
+      - llm: "Customer order: {{request}}. Give a short credit verdict."
+        tools: [ex-tariffs, ex-orders]
+        prompt_from: { server: ex-tariffs, name: credit_review }
         fallback: "Low risk: all 14 invoices paid on time and the order is within the insurer limit. Approve with standard terms."
       - artifact: { name: credit, data: { rating: A-, limit_eur: 6000000, terms: 30 days net } }
       - { complete: "Credit approved." }
@@ -48,7 +50,9 @@ agents:
     script:
       - { say: "Classifying the refiner under EU dual-use rules…", wait: 2.5s }
       - { input_required: "Please provide the end-user certificate number." }
-      - { say: "Validating certificate {{input}}…", wait: 2.5s }
+      - { resource: { server: ex-tariffs, uri: "tariffs://ex/rules/dual-use" } }
+      - { say: "Validating certificate {{input}}…", wait: 1.5s }
+      - { tool: { server: ex-tariffs, name: screen_party, args: { name: Laurentide Paper Inc } } }
       - artifact: { name: clearance, data: { classification: not dual-use, licence: none required } }
       - { complete: "Export cleared." }
   - id: ex-customs
@@ -62,7 +66,8 @@ agents:
     skills:
       - { id: file-customs, name: File customs, description: Prepare export and import declarations, tags: [customs] }
     script:
-      - { say: "Drafting the EU export declaration…", wait: 3s }
+      - { say: "Drafting the EU export declaration…", wait: 1s }
+      - { tool: { server: ex-tariffs, name: file_declaration, args: { order: "88-1203" } } }
       - { say: "Submitting to Dutch customs…", wait: 3s }
       - { say: "Waiting for release from customs…", wait: 3s }
       - { say: "Pre-filing the Canadian import declaration…", wait: 3s }
@@ -80,7 +85,10 @@ agents:
       - { id: book-freight, name: Book freight, description: Book ocean freight, tags: [shipping] }
       - { id: restricted-hazardous-cargo, name: Ship hazardous cargo, description: Declare dangerous goods (humans only), tags: [shipping, critical] }
     script:
-      - { say: "Searching sailings Rotterdam → Montreal…", wait: 2.5s }
+      - { say: "Trying to release the goods directly from the order system…", wait: 1s }
+      - { tool: { server: ex-orders, name: restricted_release_goods, args: { order: "88-1203" }, expect: denied } }
+      - { say: "Searching sailings Rotterdam → Montreal…", wait: 1.5s }
+      - { tool: { server: ex-orders, name: container_status, args: { port: Rotterdam } } }
       - artifact: { name: booking, data: { vessel: MSC Aurora, departs: in 5 days, container: 40ft HC } }
       - { complete: "Freight booked." }
 plan:
@@ -90,3 +98,62 @@ plan:
   - { step: hazmat, agent: ex-shipping, call: send, skill: restricted-hazardous-cargo, text: "Declare the refiner's lubricant drums as dangerous goods", expect: denied, say: "Sales Hub tries to declare hazardous cargo. The gateway policy should refuse it." }
   - { step: freight, agent: ex-shipping, call: send, skill: book-freight, text: "Book ocean freight Rotterdam → Montreal, one 40ft container", parallel: true, say: "Sales Hub books regular freight." }
 closing: "Order 88-1203 ready to ship."
+
+mcp_servers:
+  - id: ex-tariffs
+    role: data
+    name: Tariff & Sanctions DB
+    description: Customs tariffs, sanctions lists and export rules.
+    city: Luxembourg
+    country: LU
+    lat: 49.6116
+    lon: 6.1319
+    tools:
+      - name: screen_party
+        description: Screen a company against sanctions lists.
+        params: [{ name: name, type: string }]
+        result: "{{name}}: no match on EU, UN or OFAC sanctions lists."
+      - name: tariff_lookup
+        description: Duty for a tariff code into a country.
+        params: [{ name: hs_code, type: string }, { name: country, type: string }]
+        result: "HS {{hs_code}} into {{country}}: 0 % duty under CETA, 5 % GST on import."
+      - name: file_declaration
+        description: File the electronic export declaration (slow).
+        params: [{ name: order, type: string }]
+        progress: { steps: 4, every: 1.5s, say: "Customs system step {{step}} of {{steps}}…" }
+        result: "Export declaration for order {{order}} accepted, MRN 26LU0000000123456."
+    resources:
+      - uri: "tariffs://ex/rules/dual-use"
+        name: EU dual-use regulation, refiner excerpt
+        mime: text/markdown
+        text: |
+          # Regulation (EU) 2021/821, Annex I
+          Disc refiners for pulp are not listed. No licence is needed unless the end user is on a sanctions list
+          or the goods are for military use. Keep the end-user certificate for five years.
+    prompts:
+      - name: credit_review
+        description: System prompt for a credit check
+        text: You are a credit analyst for industrial exports. Before you answer, call order_history for the customer. Then give a credit verdict in at most three short sentences.
+  - id: ex-orders
+    role: ops
+    name: Order Management
+    description: Orders, payments and containers.
+    city: Montreal
+    country: CA
+    lat: 45.5019
+    lon: -73.5674
+    tools:
+      - name: order_history
+        description: Order and payment history of a customer.
+        params: [{ name: customer, type: string }]
+        result: "{{customer}}: 14 orders since 2019, all paid within 35 days, open balance 0 EUR."
+        data: { orders: 14, avg_days_to_pay: 31, open_balance_eur: 0 }
+      - name: container_status
+        description: Free containers at a port.
+        params: [{ name: port, type: string }]
+        result: "{{port}}: 6 free 40ft high-cube containers, next sailing to Montreal in 5 days."
+      - name: restricted_release_goods
+        description: Release goods for shipping without customs clearance (write; humans only).
+        params: [{ name: order, type: string }]
+        result: "Order {{order}} released."
+        write: true

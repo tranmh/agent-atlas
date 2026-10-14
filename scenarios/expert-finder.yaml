@@ -31,7 +31,9 @@ agents:
     script:
       - { say: "Searching 48 000 manuals and service reports…", wait: 2.5s }
       - { say: "Ranking 19 relevant passages…", wait: 2.5s }
-      - llm: "Question from a steel plant engineer: {{request}}. Relevant finding: strip edge cracks rose after the coolant flow was reduced by 15 %. Draft a short answer."
+      - llm: "Question from a steel plant engineer: {{request}}. Draft a short answer."
+        tools: [kh-docs, kh-tm]
+        prompt_from: { server: kh-docs, name: answer_draft }
         fallback: "Edge cracks after a coolant reduction usually come from uneven strip cooling. Restore the coolant flow and check the edge sprays."
       - artifact: { name: answer-draft, data: { sources: 3, confidence: 0.74 } }
       - { complete: "Answer drafted." }
@@ -48,7 +50,9 @@ agents:
     script:
       - { say: "Matching the question against 1 200 expert profiles…", wait: 2.5s }
       - { input_required: "How urgent is it: today, this week, or this month?" }
-      - { say: "Looking for experts available {{input}}…", wait: 2.5s }
+      - { resource: { server: kh-docs, uri: "docs://kh/reports/sr-2021-114" } }
+      - { say: "Looking for experts available {{input}}…", wait: 1.5s }
+      - { tool: { server: kh-docs, name: search_docs, args: { query: cold rolling edge cooling } } }
       - artifact: { name: expert, data: { expert: Dr. Maria Hofer, field: cold rolling, slot: today 15:00 CET } }
       - { complete: "Expert found." }
   - id: kh-translation
@@ -62,7 +66,8 @@ agents:
     skills:
       - { id: translate, name: Translate, description: Translate a technical text, tags: [language] }
     script:
-      - { say: "Extracting technical terms…", wait: 3s }
+      - { say: "Extracting technical terms…", wait: 1s }
+      - { tool: { server: kh-tm, name: translate_batch, args: { document: answer-draft } } }
       - { say: "Translating English → Korean…", wait: 3s }
       - { say: "Terminology review…", wait: 3s }
       - artifact: { name: translation, data: { language: ko, words: 212 } }
@@ -79,7 +84,10 @@ agents:
       - { id: lookup-contact, name: Look up contact, description: Business contact details, tags: [people] }
       - { id: restricted-salary-lookup, name: Salary lookup, description: Salary data (HR only), tags: [people, critical] }
     script:
-      - { say: "Looking up the business contact…", wait: 2s }
+      - { say: "Trying to publish the answer to the global knowledge base…", wait: 1s }
+      - { tool: { server: kh-tm, name: restricted_publish_answer, args: { document: answer-draft }, expect: denied } }
+      - { say: "Looking up the business contact…", wait: 1.5s }
+      - { tool: { server: kh-tm, name: lookup_terms, args: { term: edge cracking, language: ko } } }
       - artifact: { name: contact, data: { name: Dr. Maria Hofer, phone: "+43 316 6902 0", teams: maria.hofer } }
       - { complete: "Contact found." }
 plan:
@@ -89,3 +97,54 @@ plan:
   - { step: salary, agent: kh-hr-directory, call: send, skill: restricted-salary-lookup, text: "What is Dr. Hofer's salary band?", expect: denied, say: "Knowledge Hub asks for salary data. The gateway policy should refuse it." }
   - { step: contact, agent: kh-hr-directory, call: send, skill: lookup-contact, text: "Business contact of Dr. Maria Hofer", parallel: true, say: "Knowledge Hub looks up the business contact." }
 closing: "Question answered, expert connected."
+
+mcp_servers:
+  - id: kh-docs
+    role: data
+    name: Document Store
+    description: Manuals, service reports and papers.
+    city: Dublin
+    country: IE
+    lat: 53.3498
+    lon: -6.2603
+    tools:
+      - name: search_docs
+        description: Full-text search in manuals and service reports.
+        params: [{ name: query, type: string }]
+        result: "3 hits for '{{query}}': SR-2021-114 (edge cracks after a coolant change, Pohang), manual TM-COLD-07 §4.2, paper 'Strip edge cooling' (2019)."
+    resources:
+      - uri: "docs://kh/reports/sr-2021-114"
+        name: Service report SR-2021-114
+        mime: text/markdown
+        text: |
+          # SR-2021-114, cold mill 2, Pohang
+          Edge cracks rose from 0.2 % to 3.1 % of coils after the coolant flow was cut by 15 %.
+          Root cause: uneven strip cooling at the edges. Fix: restore the flow, check the edge sprays.
+          Author: Dr. Maria Hofer.
+    prompts:
+      - name: answer_draft
+        description: System prompt for a technical answer
+        text: You are a senior metals process engineer. Before you answer, call search_docs with the key words of the question. Then answer in at most three short sentences.
+  - id: kh-tm
+    role: ops
+    name: Translation Memory
+    description: Terminology, translations and publishing.
+    city: Seoul
+    country: KR
+    lat: 37.5665
+    lon: 126.978
+    tools:
+      - name: lookup_terms
+        description: Approved translation of a technical term.
+        params: [{ name: term, type: string }, { name: language, type: string, enum: [ko, de, en] }]
+        result: "'{{term}}' in {{language}}: 에지 크랙 (approved 2024)."
+      - name: translate_batch
+        description: Translate a document segment by segment (slow).
+        params: [{ name: document, type: string }]
+        progress: { steps: 4, every: 1.5s, say: "Translating segment block {{step}} of {{steps}}…" }
+        result: "{{document}} translated to Korean: 212 words, 4 terms from the memory."
+      - name: restricted_publish_answer
+        description: Publish an answer to the global knowledge base (write; editors only).
+        params: [{ name: document, type: string }]
+        result: "{{document}} published."
+        write: true

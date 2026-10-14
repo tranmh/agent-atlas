@@ -32,7 +32,9 @@ agents:
       - { say: "Reading fault memory of turbine T3…", wait: 2.5s }
       - { say: "Correlating bearing temperature with vibration data…", wait: 2.5s }
       - { say: "Comparing with 312 similar cases…", wait: 2s }
-      - llm: "A hydro turbine reports: {{request}}. Bearing B3 runs 18 K above normal and vibration rose 40 % in two weeks. What is the most likely fault and the next action?"
+      - llm: "A hydro turbine reports: {{request}}. Find out what is wrong and name the next action."
+        tools: [sc-historian, sc-erp]
+        prompt_from: { server: sc-historian, name: diagnose }
         fallback: "Most likely fault: bearing B3 overheating from lubrication loss. Replace the bearing and check the oil circuit."
       - artifact: { name: diagnosis, data: { fault: bearing B3 overheating, confidence: 0.87, part: SKF 23148 } }
       - { complete: "Diagnosis complete: bearing B3 must be replaced." }
@@ -49,7 +51,9 @@ agents:
     script:
       - { say: "Looking up the bill of materials for turbine T3…", wait: 2s }
       - { input_required: "Which machine serial number is affected? Two bearing variants exist for T3." }
-      - { say: "Serial {{input}} uses bearing SKF 23148. Checking stock…", wait: 2.5s }
+      - { resource: { server: sc-historian, uri: "historian://sc/manuals/turbine-t3" } }
+      - { say: "Serial {{input}} uses bearing SKF 23148. Checking stock…", wait: 1.5s }
+      - { tool: { server: sc-erp, name: check_stock, args: { part: SKF 23148 } } }
       - { say: "Reserving one unit in the Rotterdam warehouse…", wait: 2s }
       - artifact: { name: reservation, data: { part: SKF 23148, stock: 3, reserved: 1, warehouse: Rotterdam } }
       - { complete: "One SKF 23148 reserved." }
@@ -64,7 +68,8 @@ agents:
     skills:
       - { id: ship-part, name: Ship part, description: Book express freight to a plant, tags: [logistics] }
     script:
-      - { say: "Requesting express freight quotes…", wait: 3s }
+      - { say: "Requesting express freight quotes…", wait: 1s }
+      - { tool: { server: sc-erp, name: quote_freight, args: { part: SKF 23148, destination: Foz do Iguaçu } } }
       - { say: "Three carriers answered, choosing the fastest…", wait: 3s }
       - { say: "Booking air freight Rotterdam → São Paulo…", wait: 3s }
       - { say: "Preparing customs documents for Brazil…", wait: 3s }
@@ -83,7 +88,10 @@ agents:
       - { id: schedule-visit, name: Schedule visit, description: Book a technician visit, tags: [field] }
       - { id: restricted-shutdown-plant, name: Shut down plant, description: Remote shutdown (humans only), tags: [field, critical] }
     script:
-      - { say: "Checking technician calendars in Paraná…", wait: 2.5s }
+      - { say: "Trying to shut turbine T3 down remotely until the part arrives…", wait: 1s }
+      - { tool: { server: sc-erp, name: restricted_shutdown_turbine, args: { asset: T3 }, expect: denied } }
+      - { say: "Checking technician calendars in Paraná…", wait: 1.5s }
+      - { tool: { server: sc-erp, name: list_technicians, args: { region: Paraná } } }
       - { say: "Technician Ana Souza is available on Friday…", wait: 2s }
       - artifact: { name: visit, data: { technician: Ana Souza, date: Friday 08:00, plant: Foz do Iguaçu } }
       - { complete: "Visit booked for Friday 08:00." }
@@ -94,3 +102,62 @@ plan:
   - { step: shutdown, agent: sc-field-service, call: send, skill: restricted-shutdown-plant, text: "Shut down turbine T3 until the part arrives", expect: denied, say: "Service Desk tries a remote shutdown. The gateway policy should refuse it." }
   - { step: visit, agent: sc-field-service, call: send, skill: schedule-visit, text: "Schedule a technician to replace bearing B3 on turbine T3", parallel: true, say: "Service Desk books a technician visit instead." }
 closing: "Ticket #4711 closed: bearing reserved, shipped, technician booked."
+
+mcp_servers:
+  - id: sc-historian
+    role: data
+    name: Plant Historian
+    description: Sensor history and manuals of the Itaipu-region plants.
+    city: Curitiba
+    country: BR
+    lat: -25.4284
+    lon: -49.2733
+    tools:
+      - name: read_trend
+        description: Read the trend of one sensor signal of an asset.
+        params:
+          - { name: asset, type: string, description: "Asset, e.g. T3" }
+          - { name: signal, type: string, enum: [bearing_temp, vibration, oil_pressure] }
+          - { name: days, type: integer, description: Days of history }
+        result: "{{signal}} of {{asset}} over the last {{days}} days: rising. bearing_temp peaks at 92.4 °C (normal 74.1 °C), vibration +40 %."
+        data: { peak: 92.4, normal: 74.1, unit: "°C", vibration_change_pct: 40 }
+    resources:
+      - uri: "historian://sc/manuals/turbine-t3"
+        name: Turbine T3 manual, bearing section
+        mime: text/markdown
+        text: |
+          # Turbine T3, guide bearing B3
+          Spherical roller bearing. Serial SN-T3-2019-*: SKF 23148. Serial SN-T3-2021-*: SKF 23148-CC.
+          Alarm at 85 °C. Replace when the temperature stays 15 K above normal for more than 7 days.
+    prompts:
+      - name: diagnose
+        description: System prompt for a bearing diagnosis
+        text: You are a hydro turbine diagnostics engineer. Before you answer, call read_trend for the asset's bearing_temp. Then answer in at most three short sentences with the fault and the next action.
+  - id: sc-erp
+    role: ops
+    name: ERP & Spare Parts
+    description: Stock, freight quotes and field crews.
+    city: São Paulo
+    country: BR
+    lat: -23.5505
+    lon: -46.6333
+    tools:
+      - name: check_stock
+        description: Stock of a spare part in all warehouses.
+        params: [{ name: part, type: string }]
+        result: "{{part}}: 3 in stock in Rotterdam, 1 in São Paulo (reserved)."
+        data: { rotterdam: 3, sao_paulo: 1 }
+      - name: quote_freight
+        description: Ask carriers for express freight quotes (slow).
+        params: [{ name: part, type: string }, { name: destination, type: string }]
+        progress: { steps: 4, every: 1.5s, say: "Asking carrier {{step}} of {{steps}} for a quote…" }
+        result: "Best quote for {{part}} to {{destination}}: AirCargo Express, 3 days, 4 120 EUR."
+      - name: list_technicians
+        description: Available field technicians in a region.
+        params: [{ name: region, type: string }]
+        result: "Technicians in {{region}}: Ana Souza (free Friday), João Lima (free Monday)."
+      - name: restricted_shutdown_turbine
+        description: Shut a turbine down remotely (write; humans only).
+        params: [{ name: asset, type: string }]
+        result: "Turbine {{asset}} shut down."
+        write: true

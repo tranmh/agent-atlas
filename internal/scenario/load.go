@@ -86,6 +86,16 @@ func (c *Catalog) FindAgent(id string) (*Scenario, *Agent) {
 	return nil, nil
 }
 
+// FindMCPServer returns the scenario and MCP server with the given id.
+func (c *Catalog) FindMCPServer(id string) (*Scenario, *MCPServer) {
+	for _, s := range c.Scenarios {
+		if m := s.MCPServer(id); m != nil {
+			return s, m
+		}
+	}
+	return nil, nil
+}
+
 // FindOrchestrator returns the scenario whose orchestrator has the given id.
 func (c *Catalog) FindOrchestrator(id string) *Scenario {
 	for _, s := range c.Scenarios {
@@ -176,7 +186,7 @@ func (s *Scenario) Validate() error {
 		inputs, terminal, llmSteps := 0, 0, 0
 		for i, st := range a.Script {
 			if st.actions() != 1 {
-				add("agent %s script[%d]: exactly one of say, input_required, artifact, llm, complete, fail", a.ID, i)
+				add("agent %s script[%d]: exactly one of say, input_required, artifact, llm, complete, fail, tool, resource", a.ID, i)
 			}
 			switch st.Kind() {
 			case "input_required":
@@ -194,6 +204,49 @@ func (s *Scenario) Validate() error {
 			case "artifact":
 				if st.Artifact.Name == "" {
 					add("agent %s script[%d]: artifact needs a name", a.ID, i)
+				}
+			case "tool":
+				srv := s.MCPServer(st.Tool.Server)
+				switch {
+				case srv == nil:
+					add("agent %s script[%d]: unknown MCP server %q", a.ID, i, st.Tool.Server)
+				case srv.Tool(st.Tool.Name) == nil:
+					add("agent %s script[%d]: MCP server %s has no tool %q", a.ID, i, st.Tool.Server, st.Tool.Name)
+				case srv.Tool(st.Tool.Name).Write != (st.Tool.Expect == "denied"):
+					add("agent %s script[%d]: write tools must be called with expect: denied, others without", a.ID, i)
+				}
+			case "resource":
+				srv := s.MCPServer(st.Resource.Server)
+				found := false
+				if srv != nil {
+					for _, r := range srv.Resources {
+						found = found || r.URI == st.Resource.URI
+					}
+				}
+				if !found {
+					add("agent %s script[%d]: unknown MCP resource %s on %q", a.ID, i, st.Resource.URI, st.Resource.Server)
+				}
+			}
+			if len(st.Tools) > 0 || st.PromptFrom != nil {
+				if st.Kind() != "llm" {
+					add("agent %s script[%d]: tools and prompt_from belong to llm steps", a.ID, i)
+				}
+				for _, id := range st.Tools {
+					if s.MCPServer(id) == nil {
+						add("agent %s script[%d]: unknown MCP server %q in tools", a.ID, i, id)
+					}
+				}
+				if p := st.PromptFrom; p != nil {
+					srv := s.MCPServer(p.Server)
+					found := false
+					if srv != nil {
+						for _, pr := range srv.Prompts {
+							found = found || pr.Name == p.Name
+						}
+					}
+					if !found {
+						add("agent %s script[%d]: unknown MCP prompt %s on %q", a.ID, i, p.Name, p.Server)
+					}
 				}
 			}
 		}
@@ -267,6 +320,7 @@ func (s *Scenario) Validate() error {
 	if len(s.Plan) == 0 {
 		add("plan is empty")
 	}
+	s.validateMCP(add, seen)
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("scenario %s: %w", s.ID, err)
 	}
@@ -297,4 +351,93 @@ func agentIDs(s *Scenario) []string {
 		out[i] = a.ID
 	}
 	return out
+}
+
+var (
+	mcpIDRe   = regexp.MustCompile(`^[a-z]{2}-[a-z]+$`)
+	mcpNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{1,40}$`)
+)
+
+// validateMCP checks the MCP servers: one data and one ops server, a resource
+// and a prompt on the data server, exactly one slow (progress) tool and exactly
+// one write tool (on the ops server, named restricted_*).
+func (s *Scenario) validateMCP(add func(string, ...any), seen map[string]bool) {
+	if len(s.MCPServers) == 0 {
+		return // MCP is optional for a scenario
+	}
+	roles := map[string]int{}
+	progress, writes := 0, 0
+	for _, m := range s.MCPServers {
+		if !mcpIDRe.MatchString(m.ID) || !strings.HasPrefix(m.ID, s.Code+"-") {
+			add("MCP server id %q: <code>-<word>, e.g. %s-historian", m.ID, s.Code)
+		}
+		if seen[m.ID] {
+			add("duplicate id %q", m.ID)
+		}
+		seen[m.ID] = true
+		if m.Name == "" || m.City == "" || (m.Lat == 0 && m.Lon == 0) {
+			add("MCP server %s: name, city and lat/lon are required", m.ID)
+		}
+		roles[m.Role]++
+		if m.Role != "data" && m.Role != "ops" {
+			add("MCP server %s: role must be data or ops", m.ID)
+		}
+		if len(m.Tools) == 0 {
+			add("MCP server %s: at least one tool", m.ID)
+		}
+		names := map[string]bool{}
+		for _, t := range m.Tools {
+			if !mcpNameRe.MatchString(t.Name) || names[t.Name] {
+				add("MCP server %s: tool name %q invalid or duplicate", m.ID, t.Name)
+			}
+			names[t.Name] = true
+			if t.Result == "" || t.Description == "" {
+				add("MCP tool %s/%s: description and result are required", m.ID, t.Name)
+			}
+			if t.Write != strings.HasPrefix(t.Name, WriteToolPrefix) {
+				add("MCP tool %s/%s: write tools and only write tools start with %q", m.ID, t.Name, WriteToolPrefix)
+			}
+			if t.Write {
+				writes++
+				if m.Role != "ops" {
+					add("MCP tool %s/%s: write tools belong on the ops server", m.ID, t.Name)
+				}
+			}
+			if t.Progress != nil {
+				progress++
+				if t.Progress.Steps < 2 || t.Progress.Every.Std() <= 0 || t.Progress.Say == "" {
+					add("MCP tool %s/%s: progress needs steps >= 2, every and say", m.ID, t.Name)
+				}
+			}
+			for _, p := range t.Params {
+				switch p.Type {
+				case "string", "integer", "number":
+				default:
+					add("MCP tool %s/%s: param %s has unknown type %q", m.ID, t.Name, p.Name, p.Type)
+				}
+			}
+		}
+		if m.Role == "data" && (len(m.Resources) == 0 || len(m.Prompts) == 0) {
+			add("MCP server %s: the data server needs a resource and a prompt", m.ID)
+		}
+		for _, r := range m.Resources {
+			if r.URI == "" || r.Text == "" || !strings.Contains(r.URI, "://") {
+				add("MCP server %s: resource needs a uri (scheme://...) and text", m.ID)
+			}
+		}
+		for _, p := range m.Prompts {
+			if !mcpNameRe.MatchString(p.Name) || p.Text == "" {
+				add("MCP server %s: prompt %q needs a valid name and text", m.ID, p.Name)
+			}
+		}
+	}
+	if roles["data"] != 1 || roles["ops"] != 1 {
+		add("exactly one data and one ops MCP server (have %v)", roles)
+	}
+	if progress != 1 {
+		add("exactly one MCP tool with progress (have %d)", progress)
+	}
+	if writes != 1 {
+		add("exactly one MCP write tool (have %d)", writes)
+	}
 }

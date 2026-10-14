@@ -31,7 +31,9 @@ agents:
     script:
       - { say: "Searching flights Munich → New Delhi…", wait: 2.5s }
       - { say: "Comparing 27 connections…", wait: 2.5s }
-      - llm: "Trip request: {{request}}. Best option: outbound LH762 Munich to New Delhi Monday 13:05, arriving 00:20; return AI121 New Delhi to Frankfurt Friday. Summarise these two flights in two sentences."
+      - llm: "Trip request: {{request}}. Propose the outbound and return flights in two sentences."
+        tools: [tr-gds, tr-hr]
+        prompt_from: { server: tr-gds, name: itinerary }
         fallback: "Outbound LH762 Munich to New Delhi on Monday 13:05, arriving 00:20. Return AI121 on Friday via Frankfurt."
       - artifact: { name: itinerary, data: { outbound: LH762, return: AI121, cabin: economy, hold_hours: 24 } }
       - { complete: "Flights on hold for 24 h." }
@@ -48,7 +50,9 @@ agents:
     script:
       - { say: "Searching hotels in Gurugram…", wait: 2.5s }
       - { input_required: "Check-in Monday night or Tuesday? The flight lands after midnight." }
-      - { say: "Booking for check-in {{input}}…", wait: 2.5s }
+      - { resource: { server: tr-gds, uri: "gds://tr/hotels/gurugram" } }
+      - { say: "Booking for check-in {{input}}…", wait: 1.5s }
+      - { tool: { server: tr-hr, name: travel_policy, args: { grade: E12 } } }
       - artifact: { name: hotel, data: { hotel: Oberoi Gurgaon, nights: 4 } }
       - { complete: "Hotel booked." }
   - id: tr-visa
@@ -62,7 +66,8 @@ agents:
     skills:
       - { id: apply-visa, name: Apply for visa, description: Apply for an e-business visa, tags: [visa] }
     script:
-      - { say: "Filling in the e-business visa form…", wait: 3s }
+      - { say: "Filling in the e-business visa form…", wait: 1s }
+      - { tool: { server: tr-hr, name: check_visa_status, args: { application: IN-EB-2026-55871 } } }
       - { say: "Uploading passport and invitation letter…", wait: 3s }
       - { say: "Paying the visa fee…", wait: 3s }
       - { say: "Waiting for the embassy decision…", wait: 3s }
@@ -80,7 +85,10 @@ agents:
       - { id: approve-economy, name: Approve economy, description: Approve economy travel, tags: [expense] }
       - { id: restricted-business-class, name: Approve business class, description: Upgrade to business class (managers only), tags: [expense] }
     script:
-      - { say: "Checking the trip against the travel policy…", wait: 2.5s }
+      - { say: "Trying to approve business class in the HR system…", wait: 1s }
+      - { tool: { server: tr-hr, name: restricted_approve_business_class, args: { trip: MUC-DEL-2026-10 }, expect: denied } }
+      - { say: "Checking the trip against the travel policy…", wait: 1.5s }
+      - { tool: { server: tr-hr, name: travel_policy, args: { grade: E12 } } }
       - artifact: { name: approval, data: { approved: true, budget_eur: 2400 } }
       - { complete: "Economy trip approved." }
 plan:
@@ -90,3 +98,53 @@ plan:
   - { step: upgrade, agent: tr-expense, call: send, skill: restricted-business-class, text: "Upgrade the long-haul flight to business class", expect: denied, say: "Travel Desk asks for business class. The gateway policy should refuse it." }
   - { step: approve, agent: tr-expense, call: send, skill: approve-economy, text: "Approve the economy trip, 2 400 EUR", parallel: true, say: "Travel Desk gets the economy trip approved." }
 closing: "Trip to New Delhi booked."
+
+mcp_servers:
+  - id: tr-gds
+    role: data
+    name: Flight Inventory (GDS)
+    description: Flights, fares and corporate hotel rates.
+    city: Madrid
+    country: ES
+    lat: 40.4168
+    lon: -3.7038
+    tools:
+      - name: search_flights
+        description: Flights between two cities on a date.
+        params: [{ name: origin, type: string }, { name: destination, type: string }, { name: date, type: string }]
+        result: "{{origin}} → {{destination}} on {{date}}: LH762 13:05–00:20 (+1), 640 EUR; AI122 21:50–09:35 (+1), 590 EUR."
+    resources:
+      - uri: "gds://tr/hotels/gurugram"
+        name: Corporate hotel rates, Gurugram
+        mime: text/markdown
+        text: |
+          # Corporate rates, Gurugram (2026)
+          Oberoi Gurgaon 165 EUR/night, late check-in after midnight guaranteed with the corporate rate.
+          Leela Ambience 150 EUR/night.
+    prompts:
+      - name: itinerary
+        description: System prompt for an itinerary
+        text: You are a corporate travel agent. Before you answer, call search_flights for the outbound trip. Then propose the flights in at most two sentences. Do not invent flights.
+  - id: tr-hr
+    role: ops
+    name: HR & Travel Policy
+    description: Travel policy, visa applications and approvals.
+    city: Hamburg
+    country: DE
+    lat: 53.5511
+    lon: 9.9937
+    tools:
+      - name: travel_policy
+        description: Travel policy for an employee grade.
+        params: [{ name: grade, type: string }]
+        result: "Grade {{grade}}: economy for flights under 10 h, hotels up to 180 EUR per night."
+      - name: check_visa_status
+        description: Follow a visa application through the embassy portal (slow).
+        params: [{ name: application, type: string }]
+        progress: { steps: 4, every: 1.5s, say: "Embassy portal step {{step}} of {{steps}}…" }
+        result: "Visa application {{application}}: granted, e-visa issued."
+      - name: restricted_approve_business_class
+        description: Approve business class for a trip (write; managers only).
+        params: [{ name: trip, type: string }]
+        result: "Business class approved for {{trip}}."
+        write: true

@@ -39,6 +39,14 @@ const (
 	KindLLMResponse    Kind = "llm_response"    // model answer
 	KindLLMUnavailable Kind = "llm_unavailable" // model unreachable, scripted fallback used
 
+	// MCP: agent → gateway → MCP server (tools, resources, prompts).
+	KindMCPRequest    Kind = "mcp_request"     // JSON-RPC request to the scenario's MCP route (agent side)
+	KindMCPResponse   Kind = "mcp_response"    // JSON-RPC response (JSON or the end of an SSE stream)
+	KindMCPProgress   Kind = "mcp_progress"    // notifications/progress frame of a slow tool
+	KindMCPDenied     Kind = "mcp_denied"      // the gateway's MCP policy refused a call
+	KindMCPServerCall Kind = "mcp_server_call" // a tools/call, resources/read or prompts/get arrived at the server
+	KindLLMToolChoice Kind = "llm_tool_choice" // the model asked for a tool call
+
 	// What the gateway saw (OTLP access log export, decoded by the visualizer).
 	KindGatewayAccess Kind = "gateway_access"
 )

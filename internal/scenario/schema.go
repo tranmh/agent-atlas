@@ -34,15 +34,16 @@ const DeniedSkillPrefix = "restricted-"
 
 // Scenario is one use case: an orchestrator, four worker agents and a plan.
 type Scenario struct {
-	ID           string     `yaml:"id" json:"id"`
-	Code         string     `yaml:"code" json:"code"` // two letters, prefix of every agent id
-	Title        string     `yaml:"title" json:"title"`
-	Summary      string     `yaml:"summary" json:"summary"`
-	Color        string     `yaml:"color" json:"color"` // #rrggbb, the scenario's hue on the map
-	Orchestrator Place      `yaml:"orchestrator" json:"orchestrator"`
-	Agents       []Agent    `yaml:"agents" json:"agents"`
-	Plan         []PlanStep `yaml:"plan" json:"plan"`
-	Closing      string     `yaml:"closing" json:"closing"` // orchestrator's final note
+	ID           string      `yaml:"id" json:"id"`
+	Code         string      `yaml:"code" json:"code"` // two letters, prefix of every agent id
+	Title        string      `yaml:"title" json:"title"`
+	Summary      string      `yaml:"summary" json:"summary"`
+	Color        string      `yaml:"color" json:"color"` // #rrggbb, the scenario's hue on the map
+	Orchestrator Place       `yaml:"orchestrator" json:"orchestrator"`
+	Agents       []Agent     `yaml:"agents" json:"agents"`
+	Plan         []PlanStep  `yaml:"plan" json:"plan"`
+	MCPServers   []MCPServer `yaml:"mcp_servers" json:"mcp_servers"`
+	Closing      string      `yaml:"closing" json:"closing"` // orchestrator's final note
 }
 
 // Place is anything with a name at a location (the orchestrator, an agent).
@@ -90,7 +91,117 @@ type Step struct {
 	Fallback      string    `yaml:"fallback,omitempty" json:"fallback,omitempty"` // text used instead of the LLM
 	Complete      string    `yaml:"complete,omitempty" json:"complete,omitempty"` // final message, task completed
 	Fail          string    `yaml:"fail,omitempty" json:"fail,omitempty"`         // final message, task failed
+
+	Tool     *ToolCall     `yaml:"tool,omitempty" json:"tool,omitempty"`         // MCP tools/call through the gateway
+	Resource *ResourceRead `yaml:"resource,omitempty" json:"resource,omitempty"` // MCP resources/read through the gateway
+
+	// For llm steps: MCP servers whose tools the model may call, and an MCP
+	// prompt that supplies the system prompt.
+	Tools      []string   `yaml:"tools,omitempty" json:"tools,omitempty"`
+	PromptFrom *PromptRef `yaml:"prompt_from,omitempty" json:"prompt_from,omitempty"`
 }
+
+// ToolCall is a scripted MCP tool call.
+type ToolCall struct {
+	Server string         `yaml:"server" json:"server"`
+	Name   string         `yaml:"name" json:"name"`
+	Args   map[string]any `yaml:"args,omitempty" json:"args,omitempty"`
+	Expect string         `yaml:"expect,omitempty" json:"expect,omitempty"` // "denied": the gateway policy refuses it
+}
+
+// ResourceRead is a scripted MCP resources/read.
+type ResourceRead struct {
+	Server string `yaml:"server" json:"server"`
+	URI    string `yaml:"uri" json:"uri"`
+}
+
+// PromptRef names an MCP prompt.
+type PromptRef struct {
+	Server string `yaml:"server" json:"server"`
+	Name   string `yaml:"name" json:"name"`
+}
+
+// MCPServer is an MCP server at a place. Its tools, resources and prompts are
+// served deterministically from this definition (cmd/mcpserver).
+type MCPServer struct {
+	Place     `yaml:",inline" json:",inline"`
+	Role      string        `yaml:"role" json:"role"` // data | ops
+	Tools     []MCPTool     `yaml:"tools" json:"tools"`
+	Resources []MCPResource `yaml:"resources,omitempty" json:"resources,omitempty"`
+	Prompts   []MCPPrompt   `yaml:"prompts,omitempty" json:"prompts,omitempty"`
+}
+
+// Target is the server's name inside the scenario's multiplexed MCP route
+// (the id without the scenario prefix). The gateway prefixes tool and prompt
+// names with "<target>_" and resource URIs with "<target>+".
+func (m MCPServer) Target() string {
+	_, t, _ := strings.Cut(m.ID, "-")
+	return t
+}
+
+// MCPTool is one tool. Write tools are refused by the gateway policy.
+type MCPTool struct {
+	Name        string         `yaml:"name" json:"name"`
+	Description string         `yaml:"description" json:"description"`
+	Params      []MCPParam     `yaml:"params" json:"params"`
+	Result      string         `yaml:"result" json:"result"` // text template, {{param}} placeholders
+	Data        map[string]any `yaml:"data,omitempty" json:"data,omitempty"`
+	Progress    *MCPProgress   `yaml:"progress,omitempty" json:"progress,omitempty"`
+	Write       bool           `yaml:"write,omitempty" json:"write,omitempty"`
+}
+
+// MCPParam is a tool parameter (all parameters are required).
+type MCPParam struct {
+	Name        string   `yaml:"name" json:"name"`
+	Type        string   `yaml:"type" json:"type"` // string | integer | number
+	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
+	Enum        []string `yaml:"enum,omitempty" json:"enum,omitempty"`
+}
+
+// MCPProgress makes a tool slow: it sends progress notifications.
+type MCPProgress struct {
+	Steps int      `yaml:"steps" json:"steps"`
+	Every Duration `yaml:"every" json:"every"`
+	Say   string   `yaml:"say" json:"say"` // {{step}}, {{steps}} and param placeholders
+}
+
+// MCPResource is a static text resource.
+type MCPResource struct {
+	URI  string `yaml:"uri" json:"uri"`
+	Name string `yaml:"name" json:"name"`
+	MIME string `yaml:"mime" json:"mime"`
+	Text string `yaml:"text" json:"text"`
+}
+
+// MCPPrompt is a prompt with fixed text.
+type MCPPrompt struct {
+	Name        string `yaml:"name" json:"name"`
+	Description string `yaml:"description" json:"description"`
+	Text        string `yaml:"text" json:"text"`
+}
+
+// MCPServer returns the scenario's MCP server with the given id, or nil.
+func (s *Scenario) MCPServer(id string) *MCPServer {
+	for i := range s.MCPServers {
+		if s.MCPServers[i].ID == id {
+			return &s.MCPServers[i]
+		}
+	}
+	return nil
+}
+
+// Tool returns the tool with the given (unprefixed) name, or nil.
+func (m *MCPServer) Tool(name string) *MCPTool {
+	for i := range m.Tools {
+		if m.Tools[i].Name == name {
+			return &m.Tools[i]
+		}
+	}
+	return nil
+}
+
+// WriteToolPrefix marks write tools; the gateway's MCP policy refuses them.
+const WriteToolPrefix = "restricted_"
 
 // Kind names the action of a step.
 func (s Step) Kind() string {
@@ -107,13 +218,17 @@ func (s Step) Kind() string {
 		return "complete"
 	case s.Fail != "":
 		return "fail"
+	case s.Tool != nil:
+		return "tool"
+	case s.Resource != nil:
+		return "resource"
 	}
 	return ""
 }
 
 func (s Step) actions() int {
 	n := 0
-	for _, set := range []bool{s.Say != "", s.InputRequired != "", s.Artifact != nil, s.LLMPrompt != "", s.Complete != "", s.Fail != ""} {
+	for _, set := range []bool{s.Say != "", s.InputRequired != "", s.Artifact != nil, s.LLMPrompt != "", s.Complete != "", s.Fail != "", s.Tool != nil, s.Resource != nil} {
 		if set {
 			n++
 		}
